@@ -89,8 +89,8 @@ const P = {
   strokeLightMultiplier: 3.0, // shade faces snap to near-solid ink
   strokeTreshold: 0.82,
   softShade: 0.25,
-  lodOffset: 280.0,        // metres: strokes yield to wash beyond here
-  lodAmplitude: 240.0,
+  lodOffset: 1200.0,       // metres: strokes carry to the hero range (1-3 km)
+  lodAmplitude: 1000.0,
   lineWidth: 2.1,
   edgeTreshold: 0.35,
   noiseStrength: 0.04,
@@ -360,18 +360,11 @@ function buildMarks() {
     x.stroke();
   }
 
-  // village ground (Atelier Review 04): each surveyed residential block gets a
-  // faint FLAT under-tint clipped to its polygon, painted under the roof stamps,
-  // so the town prints as connected neighbourhood MASSES that the white street
-  // erase then subdivides into blocks — the town becomes the hero by COVERAGE
-  // (near-solid) against the sparse oak stipple of the slopes, not a denser dot.
-  S.residential.forEach(poly => {
-    pathPoly(poly);
-    x.fillStyle = '#f00';
-    x.globalAlpha = 0.3;
-    x.fill();
-  });
-  x.globalAlpha = 1;
+  // village ground = PAPER (Atelier Review 11). The residential under-tint was
+  // DELETED — it binarized to a solid 0.4 slab = the grey blob that swallowed the
+  // houses. The town's structure is now the 721 roof stamps + carved white streets
+  // + the fused shadow bed on bright paper — the satellite's brightest, finest-
+  // grained patch, an organized field of individual roofs, not a dark silhouette.
 
   // farm polygons: ruled two-layer parcels, each its own angle/weight
   function parcel(poly, angleDeg, spacingM, weight) {
@@ -1205,9 +1198,9 @@ function placeTrees() {
   const crowns = new THREE.InstancedMesh(crownG, crownM, trees.length);
   const dummy = new THREE.Object3D();
   trees.forEach(([tx2, ty2, s2], i) => {
-    dummy.position.set(tx2, sampleH(tx2, ty2) + 2.0 * s2, -ty2);
+    dummy.position.set(tx2, sampleH(tx2, ty2) + 1.3 * s2, -ty2);
     dummy.rotation.set((rng() - 0.5) * 0.24, rng() * 6.28, (rng() - 0.5) * 0.24);
-    dummy.scale.setScalar(s2 * 2.0);
+    dummy.scale.setScalar(s2 * 0.85);
     dummy.updateMatrix();
     crowns.setMatrixAt(i, dummy.matrix);
     bakeShadowEllipse(mctx, tx2, -ty2, 7.5 * s2, 0.14);
