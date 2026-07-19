@@ -474,12 +474,34 @@ function buildMarks() {
   // the ENTIRE ground edge-to-edge with fine ruled parcels — ink is the DEFAULT,
   // bare paper survives only as the thin seam. Chartogne's core move; we had been
   // quieting the ground to paper (backwards) instead of covering it.
-  const FAB = 170;
-  const JIT = FAB * 0.30;
+  const FAB = 140;
+  const JIT = FAB * 0.15;
   const latV = (i, j) => {
     const h = mulberry32((((i + 4096) * 73856093) ^ ((j + 4096) * 19349663)) >>> 0);
     return [CX + i * FAB + (h() - 0.5) * 2 * JIT, -CZ + j * FAB + (h() - 0.5) * 2 * JIT];
   };
+  // one CLEAN field: straight parallel rows at a single angle, bounded, seam as gap
+  function fabricCell(poly, angleDeg, spPx) {
+    x.save();
+    x.beginPath();
+    poly.forEach((p, k) => k ? x.lineTo(sx(p), sy(p)) : x.moveTo(sx(p), sy(p)));
+    x.closePath(); x.clip();
+    let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
+    poly.forEach(p => { const X = sx(p), Y = sy(p); if (X < mnx) mnx = X; if (X > mxx) mxx = X; if (Y < mny) mny = Y; if (Y > mxy) mxy = Y; });
+    const fx = (mnx + mxx) / 2, fy = (mny + mxy) / 2, L = Math.hypot(mxx - mnx, mxy - mny) + 4;
+    const a = angleDeg * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a), nx = -dy, ny = dx;
+    x.strokeStyle = '#f00'; x.globalAlpha = 0.8; x.lineWidth = 0.7; x.lineCap = 'butt'; x.setLineDash([]);
+    const cnt = Math.ceil(L / spPx);
+    for (let k = -cnt; k <= cnt; k++) {
+      const ox = fx + nx * k * spPx, oy = fy + ny * k * spPx;
+      x.beginPath(); x.moveTo(ox - dx * L, oy - dy * L); x.lineTo(ox + dx * L, oy + dy * L); x.stroke();
+    }
+    x.restore();
+    x.strokeStyle = '#f00'; x.globalAlpha = 0.42; x.lineWidth = 0.6; x.setLineDash([]);
+    x.beginPath();
+    poly.forEach((p, k) => k ? x.lineTo(sx(p), sy(p)) : x.moveTo(sx(p), sy(p)));
+    x.closePath(); x.stroke();
+  }
   const resHulls = S.residential.map(poly => {
     const c = polyCentroid(poly); let r = 0;
     poly.forEach(p => { r = Math.max(r, Math.hypot(p[0] - c[0], p[1] - c[1])); });
@@ -490,12 +512,12 @@ function buildMarks() {
     for (let j = -fabHalf; j < fabHalf; j++) {
       const A = latV(i, j), B = latV(i + 1, j), Cc = latV(i + 1, j + 1), D = latV(i, j + 1);
       const scx = (A[0] + B[0] + Cc[0] + D[0]) / 4, scy = (A[1] + B[1] + Cc[1] + D[1]) / 4;
-      if (slopeAt(scx, scy) > 0.52) continue;                 // cliffs -> shader hachure carries them
+      if (slopeAt(scx, scy) > 0.52) continue;
       let inTown = false;
       for (const [hx, hy, hr] of resHulls) { if ((hx - scx) ** 2 + (hy - scy) ** 2 < hr * hr) { inTown = true; break; } }
-      if (inTown) continue;                                   // the village floor stays paper
+      if (inTown) continue;
       const fh = mulberry32((((i + 4096) * 2654435761) ^ ((j + 4096) * 40503)) >>> 0);
-      parcel(insetPoly([A, B, Cc, D], 3), fh() * 180, 8 + fh() * 5, 0.42 + fh() * 0.4);
+      fabricCell(insetPoly([A, B, Cc, D], 5), fh() * 180, 5.5 + fh() * 2.5);
     }
   }
 
