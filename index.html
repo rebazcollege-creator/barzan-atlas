@@ -371,116 +371,87 @@ function buildMarks() {
     x.stroke();
   }
 
-  // village ground = PAPER (Atelier Review 11). The residential under-tint was
-  // DELETED — it binarized to a solid 0.4 slab = the grey blob that swallowed the
-  // houses. The town's structure is now the 721 roof stamps + carved white streets
-  // + the fused shadow bed on bright paper — the satellite's brightest, finest-
-  // grained patch, an organized field of individual roofs, not a dark silhouette.
+  // ============================================================================
+  // LAND-COVER COMPOSITION (Atelier-approved rebuild). One deterministic
+  // classify() gives every ground point exactly ONE cover, and every generator
+  // re-runs it at its own sample point — so field / forest / pasture / cemetery
+  // tile DIFFERENT ground and no two mark systems ever stack. Mountains and the
+  // village interior carry NO ground ink (relief is the terrain shader; the town
+  // is roofs on bare paper). Quiet paper is the large default. This replaces the
+  // edge-to-edge fabric + the duplicate parcel() farm rows + garden plots +
+  // seam hedgerows + oak confetti that read as one chaotic sheet.
+  // ============================================================================
 
-  // farm polygons: ruled two-layer parcels, each its own angle/weight
-  function parcel(poly, angleDeg, spacingM, weight) {
-    x.save();
-    pathPoly(poly);
-    x.clip();
-    let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
-    poly.forEach(p => {
-      mnx = Math.min(mnx, sx(p)); mxx = Math.max(mxx, sx(p));
-      mny = Math.min(mny, sy(p)); mxy = Math.max(mxy, sy(p));
-    });
-    const pcx = (mnx + mxx) / 2, pcy = (mny + mxy) / 2;
-    const L = Math.hypot(mxx - mnx, mxy - mny) / 2 + 24;
-    const a = angleDeg * Math.PI / 180;
-    const dx = Math.cos(a), dy = Math.sin(a);
-    x.strokeStyle = '#f00';
-    x.lineCap = 'round';
-    // one flat ink; parcel weight controls how many rules survive, not their tone
-    function rows(spPx, width, keepP, dashA, dashB, amp, wl) {
-      x.lineWidth = width;
-      x.globalAlpha = 0.8;
-      const n = Math.ceil(L / spPx) + 2;
-      for (let i = -n; i <= n; i++) {
-        if (rng() > keepP) continue;
-        const ox = pcx - dy * i * spPx, oy = pcy + dx * i * spPx;
-        x.setLineDash([dashA + rng() * dashA, dashB + rng() * dashB]);
-        x.lineDashOffset = rng() * 30;
-        const ph = rng() * 6.28, drift = (rng() - 0.5) * amp * 1.6;
-        x.beginPath();
-        for (let t = -L; t <= L; t += 14) {
-          const o = Math.sin(t / wl * 6.28 + ph) * amp + (rng() - 0.5) * amp * 0.4 + drift * (t / L);
-          const px2 = ox + dx * t - dy * o, py2 = oy + dy * t + dx * o;
-          t === -L ? x.moveTo(px2, py2) : x.lineTo(px2, py2);
-        }
-        x.stroke();
-      }
-      x.setLineDash([]);
-    }
-    rows(Math.max(6.5, spacingM * PXM), 1.0, Math.min(0.9, 0.35 + weight * 0.22), 12, 2, 1.1, 170);
-    x.restore();
-  }
-  // every big field becomes a fabric of sub-parcels, each with its own
-  // angle and spacing, separated by unruled seams — absence, their way
-  const parcelAngles = [18, -12, 105, 8, 40, -25, 65, -5];
-  const parcelWeights = [1.3, 0.75, 2.2, 0.5, 1.0, 1.1, 0.85, 1.4];
-  const fieldRng = mulberry32(133);
-  const seamHedges = [];
-  S.farm.forEach((poly, i) => {
-    splitParcel(poly, fieldRng).forEach((sub, k) => {
-      const subP = insetPoly(sub, 4);
-      parcel(subP, parcelAngles[(i + k) % 8] + (fieldRng() - 0.5) * 30,
-             7 + fieldRng() * 4, parcelWeights[(i * 3 + k) % 8]);
-      if (fieldRng() < 0.4) seamHedges.push(subP);
-    });
-  });
-
-  // scrub: dry hillside brush as loose stipple
-  S.scrub.forEach(poly => {
-    x.save();
-    pathPoly(poly);
-    x.clip();
-    let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
-    poly.forEach(p => {
-      mnx = Math.min(mnx, sx(p)); mxx = Math.max(mxx, sx(p));
-      mny = Math.min(mny, sy(p)); mxy = Math.max(mxy, sy(p));
-    });
-    const area = (mxx - mnx) * (mxy - mny);
-    x.strokeStyle = '#f00';
-    x.lineWidth = 0.9;
-    x.globalAlpha = 0.8;
-    for (let i = 0; i < area / 230; i++) {
-      if (rng() < 0.2) continue;
-      const px2 = mnx + rng() * (mxx - mnx), py2 = mny + rng() * (mxy - mny);
-      tuftAt(ivx(px2), ivy(py2), 2.0);
-    }
-    x.restore();
-  });
-
-  // OSM is sparse here; the landscape is not. Invent from the land:
-  // fields ringing every settlement, oak woodland on the slopes.
-  const rng2 = mulberry32(99);
-  // invented parcels TILE outward from every settlement until the slopes
-  // refuse them — adjacency without overlap, seams from the inset
-  const placedFields = [];
+  // ---- classifier signals ----
   const slopeAt = (wx, sy2) => {
     const e = 50;
     return Math.hypot(sampleH(wx + e, sy2) - sampleH(wx - e, sy2),
                       sampleH(wx, sy2 + e) - sampleH(wx, sy2 - e)) / (2 * e);
   };
   const nearWater = (wx, wy2) => {
-    for (const l of S.streams) for (const p of l) if ((p[0]-wx)**2 + (p[1]-wy2)**2 < 250*250) return true;
-    for (const l of S.river) for (const p of l) if ((p[0]-wx)**2 + (p[1]-wy2)**2 < 250*250) return true;
+    for (const l of S.streams) for (const p of l) if ((p[0] - wx) ** 2 + (p[1] - wy2) ** 2 < 250 * 250) return true;
+    for (const l of S.river) for (const p of l) if ((p[0] - wx) ** 2 + (p[1] - wy2) ** 2 < 250 * 250) return true;
     return false;
   };
-  // CONTINUOUS GROUND FABRIC (Atelier Review 12): a jittered SHARED lattice tiles
-  // the ENTIRE ground edge-to-edge with fine ruled parcels — ink is the DEFAULT,
-  // bare paper survives only as the thin seam. Chartogne's core move; we had been
-  // quieting the ground to paper (backwards) instead of covering it.
+  const resHulls = S.residential.map(poly => {
+    const cc = polyCentroid(poly); let r = 0;
+    poly.forEach(p => { r = Math.max(r, Math.hypot(p[0] - cc[0], p[1] - cc[1])); });
+    return [cc[0], cc[1], r + 200];
+  });
+  const waterPts = [];
+  S.streams.forEach(l => { for (let i = 0; i < l.length; i += 2) waterPts.push(l[i]); });
+  S.river.forEach(l => { for (let i = 0; i < l.length; i += 2) waterPts.push(l[i]); });
+  const distWater = (wx, wy2) => {
+    let m = 1e12;
+    for (const p of waterPts) { const dx = p[0] - wx, dy = p[1] - wy2, d2 = dx * dx + dy * dy; if (d2 < m) m = d2; }
+    return Math.sqrt(m);
+  };
+  const oakClear = (wx, wy2) => {
+    for (const pl of S.places) { const dx = pl.x - wx, dy = pl.y - wy2; if (dx * dx + dy * dy < 220 * 220) return true; }
+    return false;
+  };
+  const smooth01 = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+  function inPoly(px, py, poly) {
+    let c = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+      if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) c = !c;
+    }
+    return c;
+  }
+  // fields band to the valley floor + a ring OUTSIDE each settlement (radius-relative,
+  // so small and large villages both get a consistent apron) — Atelier fix 4
+  function nearFieldSettle(wx, syc) {
+    if (nearWater(wx, syc)) return true;
+    for (const [hx, hy, hr] of resHulls) if ((hx - wx) ** 2 + (hy - syc) ** 2 < (hr + 400) * (hr + 400)) return true;
+    return false;
+  }
+  // 'forest' | 'field' | 'pasture' | 'cemetery' | null   (null = draw nothing)
+  function classify(wx, wz) {
+    const syc = -wz;                                   // veg uses wz; terrain/slope use northing
+    if (distWater(wx, syc) < 35) return null;          // water channel = erased negative space
+    if (oakClear(wx, syc)) return null;                // 220 m settlement clear
+    for (const [hx, hy, hr] of resHulls) if ((hx - wx) ** 2 + (hy - syc) ** 2 < hr * hr) return null;
+    for (const cp of S.cemetery) if (inPoly(wx, syc, cp)) return 'cemetery';
+    const s = slopeAt(wx, syc);
+    const absElev = sampleH(wx, syc) / EXAG + HMIN;    // recover true metres
+    if (s > 0.62 || (absElev > 1750 && s > 0.35)) return null;   // mountain -> shader relief only
+    const v = sampleVeg(wx, wz);
+    if (v >= 0.62 && s <= 0.62) return 'forest';
+    if (s < 0.20 && v < 0.50 && absElev < 1200 && nearFieldSettle(wx, syc)) return 'field';
+    if (v >= 0.30 && s <= 0.62) return 'pasture';
+    return null;
+  }
+
+  // ---- field lattice (kept primitive) ----
   const FAB = 140;
   const JIT = FAB * 0.15;
   const latV = (i, j) => {
     const h = mulberry32((((i + 4096) * 73856093) ^ ((j + 4096) * 19349663)) >>> 0);
     return [CX + i * FAB + (h() - 0.5) * 2 * JIT, -CZ + j * FAB + (h() - 0.5) * 2 * JIT];
   };
-  // one CLEAN field: straight parallel rows at a single angle, bounded, seam as gap
+  // one CLEAN field: straight parallel rows at a single angle, bounded by the inset
+  // seam only (NO drawn outline — an outline reads as a diagram, not fabric)
   function fabricCell(poly, angleDeg, spPx) {
     x.save();
     x.beginPath();
@@ -490,39 +461,156 @@ function buildMarks() {
     poly.forEach(p => { const X = sx(p), Y = sy(p); if (X < mnx) mnx = X; if (X > mxx) mxx = X; if (Y < mny) mny = Y; if (Y > mxy) mxy = Y; });
     const fx = (mnx + mxx) / 2, fy = (mny + mxy) / 2, L = Math.hypot(mxx - mnx, mxy - mny) + 4;
     const a = angleDeg * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a), nx = -dy, ny = dx;
-    x.strokeStyle = '#f00'; x.globalAlpha = 0.8; x.lineWidth = 0.7; x.lineCap = 'butt'; x.setLineDash([]);
+    x.strokeStyle = '#f00'; x.globalAlpha = 0.40; x.lineWidth = 0.6; x.lineCap = 'butt'; x.setLineDash([]);
     const cnt = Math.ceil(L / spPx);
     for (let k = -cnt; k <= cnt; k++) {
       const ox = fx + nx * k * spPx, oy = fy + ny * k * spPx;
       x.beginPath(); x.moveTo(ox - dx * L, oy - dy * L); x.lineTo(ox + dx * L, oy + dy * L); x.stroke();
     }
     x.restore();
-    x.strokeStyle = '#f00'; x.globalAlpha = 0.42; x.lineWidth = 0.6; x.setLineDash([]);
-    x.beginPath();
-    poly.forEach((p, k) => k ? x.lineTo(sx(p), sy(p)) : x.moveTo(sx(p), sy(p)));
-    x.closePath(); x.stroke();
   }
-  const resHulls = S.residential.map(poly => {
-    const c = polyCentroid(poly); let r = 0;
-    poly.forEach(p => { r = Math.max(r, Math.hypot(p[0] - c[0], p[1] - c[1])); });
-    return [c[0], c[1], r + 200];
-  });
+
+  // (1) FIELDS — light straight-ruled patchwork, ONE angle per cell, only where
+  // classify=='field' (valley floor + settlement aprons). ~11-16 m row spacing so
+  // paper dominates; adjacent cells auto-differ from the hash.
   const fabHalf = Math.ceil((SPAN / 2) / FAB) + 1;
+  let fieldCells = 0;
   for (let i = -fabHalf; i < fabHalf; i++) {
     for (let j = -fabHalf; j < fabHalf; j++) {
       const A = latV(i, j), B = latV(i + 1, j), Cc = latV(i + 1, j + 1), D = latV(i, j + 1);
       const scx = (A[0] + B[0] + Cc[0] + D[0]) / 4, scy = (A[1] + B[1] + Cc[1] + D[1]) / 4;
-      if (slopeAt(scx, scy) > 0.52) continue;
-      let inTown = false;
-      for (const [hx, hy, hr] of resHulls) { if ((hx - scx) ** 2 + (hy - scy) ** 2 < hr * hr) { inTown = true; break; } }
-      if (inTown) continue;
+      if (classify(scx, -scy) !== 'field') continue;
       const fh = mulberry32((((i + 4096) * 2654435761) ^ ((j + 4096) * 40503)) >>> 0);
-      fabricCell(insetPoly([A, B, Cc, D], 5), fh() * 180, 5.5 + fh() * 2.5);
+      fabricCell(insetPoly([A, B, Cc, D], 5), fh() * 180, 6.3 + fh() * 2.8);
+      fieldCells++;
     }
   }
+  x.globalAlpha = 1;
 
-  // hedgerow scribble: tree-lines along field seams and stream banks,
-  // their signature companion of ways and boundaries (C1d)
+  // (2) PASTURE / SCRUB — the resting matrix: at most an occasional contour-lying
+  // tuft on classify=='pasture' ground (never circles). Real S.scrub polygons feed
+  // it (thinned + gated) plus a very sparse open scatter. Paper dominates ~95:5.
+  x.strokeStyle = '#f00';
+  x.lineWidth = 0.9;
+  x.globalAlpha = 0.40;
+  S.scrub.forEach(poly => {
+    x.save();
+    pathPoly(poly);
+    x.clip();
+    let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
+    poly.forEach(p => { mnx = Math.min(mnx, sx(p)); mxx = Math.max(mxx, sx(p)); mny = Math.min(mny, sy(p)); mxy = Math.max(mxy, sy(p)); });
+    const area = (mxx - mnx) * (mxy - mny);
+    for (let i = 0; i < area / 600; i++) {
+      const px2 = mnx + rng() * (mxx - mnx), py2 = mny + rng() * (mxy - mny);
+      const wxx = ivx(px2), nyy = ivy(py2);
+      if (classify(wxx, -nyy) !== 'pasture') continue;   // scrub carries the gate — Atelier fix 1
+      tuftAt(wxx, nyy, 2.0);
+    }
+    x.restore();
+  });
+  // sparse open-pasture scatter across the disk — makes the pasture class renderable
+  // beyond the scrub polygons (Atelier fix 2), still ~paper-dominant
+  const pRng = mulberry32(217);
+  let pTries = 0, pDrawn = 0;
+  while (pDrawn < 2600 && pTries++ < 80000) {
+    const a = pRng() * 6.28, d = 200 + Math.sqrt(pRng()) * 4300;
+    const wx = CX + Math.cos(a) * d, wz = CZ + Math.sin(a) * d;
+    if (classify(wx, wz) !== 'pasture') continue;
+    if (pRng() > 0.5) continue;
+    tuftAt(wx, -wz, 2.0);
+    pDrawn++;
+  }
+  x.globalAlpha = 1;
+
+  // (3) FOREST — a soft woolly Zagros oak wood: thousands of tiny FILLED lobes
+  // clustered into contiguous masses, packed dark core feathering to bare paper
+  // (the smoothstep on veg IS the feathered edge — no clip, no outline). 2D ONLY,
+  // decoupled from the 3D-tree seed set so it can go dense without touching the GPU.
+  const FOREST_LOBES = [];
+  const forestProb = (wx, wz) => classify(wx, wz) !== 'forest'
+    ? 0 : 0.12 + 0.88 * smooth01((sampleVeg(wx, wz) - 0.62) / 0.23);
+  const fRng = mulberry32(911);
+  let fCand = 0;
+  while (FOREST_LOBES.length < 16000 && fCand++ < 220000) {
+    const a = fRng() * 6.28, d = 300 + Math.sqrt(fRng()) * 4100;
+    const wx = CX + Math.cos(a) * d, wz = CZ + Math.sin(a) * d;
+    if (fRng() > forestProb(wx, wz)) continue;
+    FOREST_LOBES.push([wx, wz]);
+  }
+  // gallery ribbon: soft lobes flanking the Zab in the 36-90 m bank band OUTSIDE the
+  // erased channel — bypasses the water-null so the green river thread reads (Atelier fix 3)
+  const gRng2 = mulberry32(613);
+  S.river.forEach(l => {
+    for (const p of l) {
+      for (let t = 0; t < 3; t++) {
+        const a = gRng2() * 6.28, dd = 36 + gRng2() * 54;
+        const wx = p[0] + Math.cos(a) * dd, nyy = p[1] + Math.sin(a) * dd, wz = -nyy;
+        if (oakClear(wx, nyy)) continue;
+        let inTown = false;
+        for (const [hx, hy, hr] of resHulls) if ((hx - wx) ** 2 + (hy - nyy) ** 2 < hr * hr) { inTown = true; break; }
+        if (inTown) continue;
+        if (slopeAt(wx, nyy) > 0.62) continue;
+        if (gRng2() > 0.55) continue;
+        FOREST_LOBES.push([wx, wz]);
+      }
+    }
+  });
+  x.fillStyle = '#f00';
+  FOREST_LOBES.forEach(([wx, wz]) => {
+    const cx0 = cxp(wx), cy0 = cyp(wz);
+    const clump = 2 + (fRng() * 3 | 0);
+    for (let k = 0; k < clump; k++) {
+      const r = 1.5 + fRng() * 1.5;
+      x.globalAlpha = 0.30;                             // overlaps accumulate red -> dark core
+      x.beginPath();
+      x.arc(cx0 + (fRng() - 0.5) * 7.4, cy0 + (fRng() - 0.5) * 7.4, r, 0, 6.2832);
+      x.fill();
+    }
+  });
+  x.globalAlpha = 1;
+
+  // 3D-TREE SEED SET — OAK_FIELD feeds placeTrees() 1:1 to spawn instanced 3D
+  // crowns; it is a SEED SET ONLY (no 2D ink — the drawn wood is FOREST_LOBES).
+  // Gated to the SAME forest mask; capped at 5000 for the 8 GB Mac (was 8000).
+  const cl = (v, a, b) => Math.max(a, Math.min(b, v));
+  function oakDensity(wx, wz) {
+    if (classify(wx, wz) !== 'forest') return 0;
+    return cl(0.12 + (sampleVeg(wx, wz) - 0.62) * 1.7, 0, 0.6);
+  }
+  const oRng = mulberry32(313);
+  let oCand = 0;
+  while (OAK_FIELD.length < 5000 && oCand++ < 70000) {
+    const a = oRng() * 6.28, d = 620 + Math.sqrt(oRng()) * 3580;
+    const wx = CX + Math.cos(a) * d, wz = CZ + Math.sin(a) * d;
+    if (oRng() > oakDensity(wx, wz)) continue;
+    OAK_FIELD.push([wx, wz]);
+  }
+
+  // (4) CEMETERY — a quiet fine stipple with a dashed border, its own cover so
+  // nothing draws under it. Light tier (alpha 0.45) — Atelier fix 5.
+  S.cemetery.forEach(poly => {
+    x.save();
+    pathPoly(poly);
+    x.clip();
+    let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
+    poly.forEach(p => { mnx = Math.min(mnx, sx(p)); mxx = Math.max(mxx, sx(p)); mny = Math.min(mny, sy(p)); mxy = Math.max(mxy, sy(p)); });
+    x.fillStyle = '#f00';
+    x.globalAlpha = 0.45;
+    for (let i = 0; i < 350; i++) {
+      x.fillRect(mnx + rng() * (mxx - mnx), mny + rng() * (mxy - mny), 1.4, 2.4);
+    }
+    x.restore();
+    pathPoly(poly);
+    x.globalAlpha = 0.45;
+    x.strokeStyle = '#f00';
+    x.lineWidth = 1;
+    x.setLineDash([6, 5]);
+    x.stroke();
+    x.setLineDash([]);
+  });
+  x.globalAlpha = 1;
+
+  // stream-bank tree-line: the ONLY hedgerow use, thinned to sparse dots (prob 0.2)
   function hedgerow(pts, prob, offPx) {
     for (let i = 0; i < pts.length - 1; i++) {
       const X0 = sx(pts[i]), Y0 = sy(pts[i]);
@@ -542,107 +630,9 @@ function buildMarks() {
   }
   x.strokeStyle = '#f00';
   x.lineWidth = 0.9;
-  x.globalAlpha = 0.8;
-  S.streams.forEach(l => hedgerow(l, 0.5, 4));
-  seamHedges.forEach(poly => hedgerow([...poly, poly[0]], 0.35, 3));
-  // garden plots woven between the houses — the village interior
-  // is a fabric of small worked squares, never bare ground
-  const gRng = mulberry32(55);
-  let gplots = 0, gtries = 0;
-  while (gplots < 90 && gtries++ < 1400) {
-    const bf = S.buildings[(gRng() * S.buildings.length) | 0];
-    let cx3 = 0, cy3 = 0;
-    bf.forEach(pp => { cx3 += pp[0]; cy3 += pp[1]; });
-    cx3 /= bf.length; cy3 /= bf.length;
-    const ga = gRng() * 6.28, gd = 24 + gRng() * 32;
-    const gx = cx3 + Math.cos(ga) * gd, gy = cy3 + Math.sin(ga) * gd;
-    let ok = true;
-    for (const poly of S.buildings) {
-      if ((poly[0][0] - gx) ** 2 + (poly[0][1] - gy) ** 2 < 17 * 17) { ok = false; break; }
-    }
-    if (!ok) continue;
-    const gw = 12 + gRng() * 14, gh = 9 + gRng() * 11, grot = gRng() * 3.14;
-    const gca = Math.cos(grot), gsa = Math.sin(grot);
-    const gpoly = [[-gw/2,-gh/2],[gw/2,-gh/2],[gw/2,gh/2],[-gw/2,gh/2]]
-      .map(([qx, qy]) => [gx + qx*gca - qy*gsa, gy + qx*gsa + qy*gca]);
-    parcel(gpoly, grot * 57.3, 2.2, 1.0);
-    gplots++;
-  }
-
-  // NO forest-blob masses, NO gorge-forest masses (Atelier Review 04): the real
-  // slopes are a light DOTTING of single oaks, not solid scribble ellipses. The
-  // terrain-following oak field below replaces both, at ~1/10th the ink.
-  // TERRAIN-FOLLOWING OAK FIELD (Atelier Review 06): density = gully(concave,
-  // water-collecting) + near-stream + north-aspect + flat-valley, zeroed on
-  // ridges, steep ground, and over the settlements. Rejection-sampled to a
-  // light stipple that draws the folds and the stream lines. The SAME OAK_FIELD
-  // carries the 3D oaks in placeTrees (1:1). One small arc per oak.
-  const cl = (v, a, b) => Math.max(a, Math.min(b, v));
-  const waterPts = [];
-  S.streams.forEach(l => { for (let i = 0; i < l.length; i += 2) waterPts.push(l[i]); });
-  S.river.forEach(l => { for (let i = 0; i < l.length; i += 2) waterPts.push(l[i]); });
-  const distWater = (wx, wy2) => {
-    let m = 1e12;
-    for (const p of waterPts) { const dx = p[0] - wx, dy = p[1] - wy2, d2 = dx*dx + dy*dy; if (d2 < m) m = d2; }
-    return Math.sqrt(m);
-  };
-  const oakClear = (wx, wy2) => {
-    for (const pl of S.places) { const dx = pl.x - wx, dy = pl.y - wy2; if (dx*dx + dy*dy < 220*220) return true; }
-    return false;
-  };
-  function oakDensity(wx, wz) {
-    const syc = -wz, e = 55;
-    if (oakClear(wx, syc)) return 0;
-    if (distWater(wx, syc) < 35) return 0;   // keep oaks out of the Zab and its streams
-    const slope = Math.hypot(sampleH(wx + e, syc) - sampleH(wx - e, syc),
-                             sampleH(wx, syc + e) - sampleH(wx, syc - e)) / (2 * e);
-    if (slope > 0.62) return 0;
-    const v = sampleVeg(wx, wz);   // REAL satellite-derived vegetation fraction
-    if (v < 0.72) return 0;        // only the densest real vegetation -> concentrated valley masses
-    return cl(0.12 + (v - 0.72) * 1.7, 0, 0.6);
-  }
-  const oRng = mulberry32(313);
-  let oCand = 0;
-  while (OAK_FIELD.length < 8000 && oCand++ < 70000) {
-    const a = oRng() * 6.28, d = 620 + Math.sqrt(oRng()) * 3580;
-    const wx = CX + Math.cos(a) * d, wz = CZ + Math.sin(a) * d;
-    if (oRng() > oakDensity(wx, wz)) continue;
-    OAK_FIELD.push([wx, wz]);
-  }
-  x.strokeStyle = '#f00';
-  x.lineWidth = 0.9;
-  x.globalAlpha = 0.8;
-  OAK_FIELD.forEach(([wx, wz]) => {
-    const aa = oRng() * 6.28;
-    x.beginPath();
-    x.arc(cxp(wx), cyp(wz), 0.6 + oRng() * 1.0, aa, aa + 3.6 + oRng() * 1.8);
-    x.stroke();
-  });
-
-  // cemetery: quiet fine stipple with a border
-  S.cemetery.forEach(poly => {
-    x.save();
-    pathPoly(poly);
-    x.clip();
-    let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
-    poly.forEach(p => {
-      mnx = Math.min(mnx, sx(p)); mxx = Math.max(mxx, sx(p));
-      mny = Math.min(mny, sy(p)); mxy = Math.max(mxy, sy(p));
-    });
-    x.fillStyle = '#f00';
-    x.globalAlpha = 0.8;
-    for (let i = 0; i < 350; i++) {
-      x.fillRect(mnx + rng() * (mxx - mnx), mny + rng() * (mxy - mny), 1.4, 2.4);
-    }
-    x.restore();
-    pathPoly(poly);
-    x.globalAlpha = 0.8;
-    x.strokeStyle = '#f00';
-    x.lineWidth = 1;
-    x.setLineDash([6, 5]);
-    x.stroke();
-    x.setLineDash([]);
-  });
+  x.globalAlpha = 0.40;
+  S.streams.forEach(l => hedgerow(l, 0.2, 4));
+  x.globalAlpha = 1;
 
   // roads carry NO positive treatment here: no corridor, no dots, no rails.
   // a road is where the drawing stops (their R-channel law). The single
@@ -906,7 +896,7 @@ const GROUND_FRAG = /* glsl */`
     vec2 uv = (vWorldPos.xz - uCenter) / uSpan + 0.5;
     vec4 md = texture2D(uMarks, uv);
     // binarized: one flat ink value, tone comes from mark density (their step law)
-    float marks = step(0.18, md.r) * 0.4;
+    float marks = step(0.16, md.r) * 0.30 + step(0.50, md.r) * 0.30;
     float shadowBake = md.g;
     float edgeFade = 1.0 - smoothstep(3400.0, 4300.0, distance(vWorldPos.xz, uCenter));
 
