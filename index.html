@@ -18,6 +18,17 @@
     font-family: Georgia, serif; font-style: italic;
     font-size: 10px; letter-spacing: 0.06em; color: rgba(77,70,57,0.55);
   }
+  #frame{position:fixed;inset:0;pointer-events:none;z-index:4}
+  #frame .pm{position:absolute;border:1px solid rgba(77,70,57,0.5)}
+  #frame .tick{position:absolute;width:9px;height:9px;border:1px solid rgba(77,70,57,0.6)}
+  #menu{position:fixed;top:72px;left:23px;z-index:6;font-family:Georgia,serif;font-size:12px;letter-spacing:.4em;color:#4d4639;line-height:1.7}
+  #mapbtn{position:fixed;top:22px;right:34px;z-index:6;font-family:Georgia,serif;font-size:15px;letter-spacing:.42em;color:#4d4639}
+  #compass{position:fixed;top:52px;right:30px;z-index:6;width:46px;height:46px}
+  #scalebar{position:fixed;bottom:48px;left:34px;z-index:6;font-family:Georgia,serif;font-size:9.5px;letter-spacing:.14em;color:#4d4639}
+  #scalebar .lbl{margin-bottom:3px}
+  #scalebar .bar{height:5px;border:1px solid #4d4639;border-top:none;width:120px}
+  #index{position:fixed;bottom:14px;left:0;right:0;z-index:6;display:flex;justify-content:center;gap:20px;flex-wrap:wrap;padding:0 60px;font-family:Georgia,serif;font-size:10.5px;letter-spacing:.09em;color:rgba(77,70,57,0.6)}
+  #index .pl.active{color:#a5301f}
 </style>
 </head>
 <body>
@@ -1355,7 +1366,7 @@ function addLabels() {
             gl_FragColor = vec4(0.0, ink, 0.0, uRedA * smoothstep(0.0, 0.12, ink));
           }
         `,
-        uniforms: { tText: { value: tex }, uStrength: { value: town ? 0.78 : 0.55 }, uRedA: { value: town ? 0.88 : 0.0 } },
+        uniforms: { tText: { value: tex }, uStrength: { value: town ? 0.78 : 0.55 }, uRedA: { value: town ? 0.30 : 0.0 } },
         blending: THREE.CustomBlending,
       blendEquation: THREE.AddEquation,
       blendSrc: THREE.OneFactor,
@@ -1646,8 +1657,51 @@ new THREE.ImageLoader().load('assets/paper.png', img => {
 renderer.setClearColor(new THREE.Color(0.5, 0.0, 0.0), 0.0);
 
 const clock = new THREE.Clock();
+/* ---------- the cartographic instrument (Atelier Review 12) ---------- */
+(function buildFrame() {
+  const frame = document.createElement('div'); frame.id = 'frame';
+  frame.innerHTML =
+    '<div class="pm" style="inset:12px"></div><div class="pm" style="inset:16px;opacity:.5"></div>' +
+    '<div class="tick" style="top:12px;left:12px"></div><div class="tick" style="top:12px;right:12px"></div>' +
+    '<div class="tick" style="bottom:12px;left:12px"></div><div class="tick" style="bottom:12px;right:12px"></div>';
+  document.body.appendChild(frame);
+  const menu = document.createElement('div'); menu.id = 'menu'; menu.innerHTML = 'M E<br>N U'; document.body.appendChild(menu);
+  const mapb = document.createElement('div'); mapb.id = 'mapbtn'; mapb.textContent = 'M A P'; document.body.appendChild(mapb);
+  const NS = 'http://www.w3.org/2000/svg';
+  const comp = document.createElementNS(NS, 'svg'); comp.id = 'compass'; comp.setAttribute('viewBox', '0 0 46 46');
+  comp.innerHTML = '<circle cx="23" cy="23" r="15" fill="none" stroke="rgba(77,70,57,0.35)" stroke-width="0.6"/>'
+    + '<g id="nd"><line x1="23" y1="9" x2="23" y2="37" stroke="rgba(77,70,57,0.6)" stroke-width="0.7"/>'
+    + '<path d="M23 6 L20.2 14 L25.8 14 Z" fill="#a5301f"/>'
+    + '<text x="23" y="5.4" font-family="Georgia,serif" font-size="6.5" fill="#4d4639" text-anchor="middle">N</text></g>';
+  document.body.appendChild(comp);
+  const sb = document.createElement('div'); sb.id = 'scalebar';
+  sb.innerHTML = '<div class="lbl"></div><div class="bar"></div>'; document.body.appendChild(sb);
+  const idx = document.createElement('div'); idx.id = 'index';
+  S.places.filter(p => p.n).forEach(p => {
+    const e = document.createElement('span'); e.className = 'pl';
+    e.dataset.x = p.x; e.dataset.y = p.y; e.textContent = p.n.toUpperCase(); idx.appendChild(e);
+  });
+  document.body.appendChild(idx);
+  window.__frame = { needle: comp.querySelector('#nd'), lbl: sb.querySelector('.lbl'), bar: sb.querySelector('.bar'), pls: [...idx.querySelectorAll('.pl')] };
+})();
+function updateFrame() {
+  const F = window.__frame; if (!F) return;
+  const dx = camera.position.x - controls.target.x, dz = camera.position.z - controls.target.z;
+  F.needle.setAttribute('transform', 'rotate(' + (Math.atan2(dx, dz) * 180 / Math.PI).toFixed(1) + ' 23 23)');
+  const dist = Math.hypot(dx, camera.position.y - controls.target.y, dz);
+  const wpp = 2 * dist * Math.tan(camera.fov * Math.PI / 360) / innerHeight;
+  const nice = [50, 100, 200, 500, 1000, 2000, 5000, 10000];
+  let pick = nice[0]; for (const n of nice) if (n / wpp <= 240) pick = n;
+  F.lbl.textContent = pick >= 1000 ? (pick / 1000) + ' KM' : pick + ' M';
+  F.bar.style.width = Math.round(pick / wpp) + 'px';
+  let best = null, bd = 1e18;
+  F.pls.forEach(e => { const d = (+e.dataset.x - controls.target.x) ** 2 + (-(+e.dataset.y) - controls.target.z) ** 2; e.classList.remove('active'); if (d < bd) { bd = d; best = e; } });
+  if (best) best.classList.add('active');
+}
+
 renderer.setAnimationLoop(() => {
   controls.update();
+  updateFrame();
   const tNow = clock.getElapsedTime();
   compMat.uniforms.uTime.value = tNow;
   treeStats.crownM.uniforms.uTime.value = tNow;
@@ -1676,7 +1730,7 @@ console.log('barzan drawn:', S.buildings.length, 'houses,', treeStats.trees, 'tr
      the town centre, matching Review 01/02 exactly, so a screenshot here
      is directly comparable to its Chartogne frames. ---------- */
 const hint = document.createElement('div');
-hint.style.cssText = 'position:fixed;left:14px;bottom:12px;font:12px/1.5 Georgia,serif;color:#6b6654;opacity:.68;pointer-events:none;z-index:20;letter-spacing:.02em';
+hint.style.cssText = 'position:fixed;left:14px;bottom:12px;font:12px/1.5 Georgia,serif;color:#6b6654;opacity:0;pointer-events:none;z-index:20;letter-spacing:.02em';
 hint.textContent = 'press 1–4 for Atelier review frames · 0 to reset';
 document.body.appendChild(hint);
 const VIEWS = {
