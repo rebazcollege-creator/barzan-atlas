@@ -81,7 +81,7 @@ function mulberry32(a) {
 
 const P = {
   paper:  [0.925, 0.898, 0.816],   // #ece5d0
-  pencil: [0.302, 0.275, 0.224],   // #4d4639
+  pencil: [0.44, 0.41, 0.35],      // paler grey-brown -> Chartogne's faded pencil
   lightDir: new THREE.Vector3(-0.55, 0.75, 0.35).normalize(),
   strokeDir: new THREE.Vector3(1.0, 1.35, 0.45).normalize(),
   subdivision: 3.4,        // stroke lines per metre on walls
@@ -1014,7 +1014,7 @@ function placeHouses() {
       dummy.scale.set(f.w / 9, hScale, f.d / 7);
       dummy.updateMatrix();
       m.setMatrixAt(i, dummy.matrix);
-      bakeHouseShadow(mctx, f, 4.6 * hScale, 0.17);
+      bakeHouseShadow(mctx, f, 4.6 * hScale, 0.10);
     });
     m.frustumCulled = false;
     scene.add(m);
