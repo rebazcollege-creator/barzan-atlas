@@ -569,12 +569,13 @@ function buildMarks() {
   function oakDensity(wx, wz) {
     const syc = -wz, e = 55;
     if (oakClear(wx, syc)) return 0;
+    if (distWater(wx, syc) < 35) return 0;   // keep oaks out of the Zab and its streams
     const slope = Math.hypot(sampleH(wx + e, syc) - sampleH(wx - e, syc),
                              sampleH(wx, syc + e) - sampleH(wx, syc - e)) / (2 * e);
     if (slope > 0.62) return 0;
     const v = sampleVeg(wx, wz);   // REAL satellite-derived vegetation fraction
-    if (v < 0.10) return 0;        // no oaks on bare rock or built ground
-    return cl(v * 0.75, 0, 0.6);
+    if (v < 0.72) return 0;        // only the densest real vegetation -> concentrated valley masses
+    return cl(0.12 + (v - 0.72) * 1.7, 0, 0.6);
   }
   const oRng = mulberry32(313);
   let oCand = 0;
