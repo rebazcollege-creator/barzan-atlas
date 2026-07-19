@@ -1,0 +1,27 @@
+name: Render & Deploy Barzan Atlas
+on:
+  push: { branches: [main] }
+  workflow_dispatch:
+permissions: { contents: read, pages: write, id-token: write }
+concurrency: { group: pages, cancel-in-progress: true }
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm i puppeteer@23 --no-audit --no-fund
+      - run: node ci/render_screenshots.js
+      - uses: actions/upload-artifact@v4
+        with: { name: barzan-renders, path: renders/ }
+  deploy:
+    runs-on: ubuntu-latest
+    environment: { name: github-pages, url: "${{ steps.dep.outputs.page_url }}" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: '.' }
+      - id: dep
+        uses: actions/deploy-pages@v4

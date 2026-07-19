@@ -1,0 +1,1719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Barzan Atlas — Drawn</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #ece5d0; }
+  canvas { display: block; }
+  #tag {
+    position: fixed; top: 18px; left: 22px; z-index: 5;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 13px; letter-spacing: 0.28em; color: #4d4639;
+  }
+  #tag b { display: block; font-size: 17px; margin-bottom: 5px; font-weight: normal; color: #a5301f; }
+  #cred {
+    position: fixed; bottom: 14px; left: 22px; z-index: 5;
+    font-family: Georgia, serif; font-style: italic;
+    font-size: 10px; letter-spacing: 0.06em; color: rgba(77,70,57,0.55);
+  }
+</style>
+</head>
+<body>
+<div id="tag"><b>T H E&nbsp;&nbsp;B A R Z A N&nbsp;&nbsp;A T L A S</b>DRAWN FROM SURVEY DATA</div>
+<div id="cred">Map data &copy; OpenStreetMap contributors &middot; Terrain: NASA SRTM</div>
+<script type="importmap">
+  { "imports": { "three": "./vendor/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from './vendor/OrbitControls.js';
+import { mergeGeometries } from './vendor/BufferGeometryUtils.js';
+
+/* ============================================================
+   BARZAN on the prototype pipeline. Everything proto.html
+   proved, scaled to metres and fed with the real survey data:
+   721 building footprints, the road network, the Great Zab,
+   farm polygons, SRTM relief. Same law throughout: the page
+   is paper, and pencil lands only where the data channels say.
+   ============================================================ */
+
+const [T, S, VEG] = await Promise.all([
+  fetch('./data/terrain.json').then(r => r.json()),
+  fetch('./data/scene.json').then(r => r.json()),
+  fetch('./data/veg.json').then(r => r.json())
+]);
+
+const G = T.grid, HMIN = T.min, W = S.extentW, H = S.extentH, EXAG = 1.12;
+const HTS = T.heights;
+function sampleH(x, yN) {
+  let i = (x / W + 0.5) * (G - 1), j = (0.5 - yN / H) * (G - 1);
+  i = Math.max(0, Math.min(G - 1.001, i)); j = Math.max(0, Math.min(G - 1.001, j));
+  const i0 = i | 0, j0 = j | 0, fx = i - i0, fy = j - j0;
+  const h00 = HTS[j0 * G + i0], h10 = HTS[j0 * G + i0 + 1];
+  const h01 = HTS[(j0 + 1) * G + i0], h11 = HTS[(j0 + 1) * G + i0 + 1];
+  return ((h00 * (1 - fx) + h10 * fx) * (1 - fy) + (h01 * (1 - fx) + h11 * fx) * fy - HMIN) * EXAG;
+}
+
+// REAL vegetation from the satellite (data/veg.json), sampled in world coords
+const VG = VEG.grid, VEW = VEG.extentW, VEH = VEG.extentH, VD = VEG.dens;
+function sampleVeg(wx, wz) {
+  let i = (wx / VEW + 0.5) * VG, j = (wz / VEH + 0.5) * VG;
+  i = Math.max(0, Math.min(VG - 1, i | 0)); j = Math.max(0, Math.min(VG - 1, j | 0));
+  return VD[j * VG + i] / 255;
+}
+
+const townP = S.places.find(p => p.t === 'town') ?? S.places[0];
+const CX = townP.x, CZ = -townP.y; // world centre = Barzan itself
+const SPAN = 9000;                 // the drawn map's world span, metres — reaches the Zab
+
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+/* ---------- palette + metre-tuned parameters ---------- */
+
+const P = {
+  paper:  [0.925, 0.898, 0.816],   // #ece5d0
+  pencil: [0.302, 0.275, 0.224],   // #4d4639
+  lightDir: new THREE.Vector3(-0.55, 0.75, 0.35).normalize(),
+  strokeDir: new THREE.Vector3(1.0, 1.35, 0.45).normalize(),
+  subdivision: 3.4,        // stroke lines per metre on walls
+  strokeLightOffset: -0.7,  // their shader08 pairing: lit faces are paper,
+  strokeLightMultiplier: 3.0, // shade faces snap to near-solid ink
+  strokeTreshold: 0.82,
+  softShade: 0.25,
+  lodOffset: 280.0,        // metres: strokes yield to wash beyond here
+  lodAmplitude: 240.0,
+  lineWidth: 2.1,
+  edgeTreshold: 0.35,
+  noiseStrength: 0.04,
+  vignetteStrength: 0.5,
+  vignetteOffset: 0.16,
+  paperStrength: 0.26,
+  depthScale: 0.00012      // line width falls off over ~8 km
+};
+
+const TREE_STROKE = {
+  strokeDir: new THREE.Vector3(0, 1, 0),
+  strokeOffset: -0.7,
+  strokeMult: 3.0,
+  strokeTreshold: 0.65, // cap: the shade flank stays DRAWN, never filled solid
+  subdivision: 9.0,
+  softShade: 0.55,
+  softGate0: 0.45,   // lit lobes stay pure paper; wash only on the shade flank
+  softGate1: 0.75
+};
+
+// on 8 GB machines AND on phones/tablets (coarse pointer), halve render
+// memory so long sessions can't starve the OS into a watchdog reboot and
+// so a hosted URL opens safely on mobile; bigger desktops keep full quality
+const LOWMEM = (navigator.deviceMemory || 16) <= 8 || matchMedia('(pointer: coarse)').matches;
+const renderer = new THREE.WebGLRenderer({ antialias: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, LOWMEM ? 1.5 : 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 2, 20000);
+const hTown = sampleH(CX, -CZ);
+camera.position.set(CX + 520, hTown + 420, CZ + 680);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(CX, hTown + 10, CZ);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.48;
+controls.minDistance = 60;
+controls.maxDistance = 4200;
+
+/* ---------- data materials (proto pipeline, metre noise) ---------- */
+
+const DATA_VERT = /* glsl */`
+  uniform float uTime;
+  uniform float uWindAmp;
+  attribute float aTone;
+  attribute float aSolid;
+  varying float vTone;
+  varying float vSolid;
+  varying vec3 vModelPos;
+  varying vec3 vWorldPos;
+  varying vec3 vNormalV;
+  varying vec3 vNormalW;
+  varying float vDepth;
+  varying float vPhase;
+  void main() {
+    vModelPos = position;
+    vTone = aTone;
+    vSolid = aSolid;
+    vPhase = 0.0;
+    vec3 objNormal = normal;
+    vec3 objPos = position;
+    #ifdef USE_INSTANCING
+      objNormal = mat3(instanceMatrix) * objNormal;
+      objPos = (instanceMatrix * vec4(objPos, 1.0)).xyz;
+      // each instance draws with its own hand: stroke phase never aligns
+      vPhase = fract(instanceMatrix[3][0] * 0.731 + instanceMatrix[3][2] * 0.377);
+      float wf = clamp(position.y * 0.25 + 0.5, 0.0, 1.0) * uWindAmp;
+      float wph = instanceMatrix[3][0] * 0.12 + instanceMatrix[3][2] * 0.17;
+      objPos.x += sin(uTime * 0.8 + wph) * wf;
+      objPos.z += cos(uTime * 0.63 + wph * 1.3) * wf * 0.7;
+    #endif
+    vWorldPos = (modelMatrix * vec4(objPos, 1.0)).xyz;
+    vNormalV = normalMatrix * objNormal;
+    vNormalW = (modelMatrix * vec4(objNormal, 0.0)).xyz;
+    vec4 mv = modelViewMatrix * vec4(objPos, 1.0);
+    vDepth = -mv.z;
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+
+const DATA_FRAG = /* glsl */`
+  uniform float uTone;
+  uniform float uToneGrad;
+  uniform float uGradY0;
+  uniform float uGradY1;
+  uniform vec3 uLightDir;
+  uniform vec3 uStrokeDirection;
+  uniform float uSubdivision;
+  uniform float uStrokeLightOffset;
+  uniform float uStrokeLightMultiplier;
+  uniform float uStrokeTreshold;
+  uniform float uSoftShade;
+  uniform float uSoftGate0;
+  uniform float uSoftGate1;
+  uniform float uLodOffset;
+  uniform float uLodAmplitude;
+  uniform float uDepthScale;
+  varying float vTone;
+  varying float vSolid;
+  varying vec3 vModelPos;
+  varying vec3 vNormalV;
+  varying vec3 vNormalW;
+  varying float vDepth;
+  varying float vPhase;
+
+  float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float vnoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(h2(i), h2(i + vec2(1, 0)), u.x),
+               mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), u.x), u.y);
+  }
+
+  float getPencilStrength(float baseStrength, vec3 pos, float phase) {
+    float b = (baseStrength + uStrokeLightOffset) * uStrokeLightMultiplier;
+    float s = distance(pos, uStrokeDirection * 1000.0);
+    vec2 np = vec2(dot(pos, vec3(0.83, 0.31, 0.55)), dot(pos, vec3(-0.4, 0.9, 0.2)));
+    s += (vnoise(np * 0.8) - 0.5) * 0.14;     // the hand wavers
+    b += (vnoise(np * 1.75 + 13.7) - 0.5) * 0.26; // pressure varies
+    s = s * uSubdivision + phase;
+    s = abs(mod(s, 1.0) - 0.5) * 2.0;
+    s += b;
+    s = clamp(s, 0.0, 1.0);
+    s = pow(s, 0.1); // near-binary: a fragment gets a full stroke or pure paper
+    return s * uStrokeTreshold;
+  }
+
+  void main() {
+    float normalStrength = normalize(vNormalV).x * 0.5 + 0.5;
+    float light = clamp(dot(normalize(vNormalW), uLightDir), 0.0, 1.0) * 0.7 + 0.3;
+    float toneEff = (uTone + vTone) * (1.0 - uToneGrad * (1.0 - smoothstep(uGradY0, uGradY1, vModelPos.y)));
+    float baseStrength = 1.0 - toneEff * light;
+    float stroke = getPencilStrength(baseStrength, vModelPos, vPhase);
+    float strokeStrength = 1.0 - clamp((vDepth - uLodOffset) / uLodAmplitude, 0.0, 1.0);
+    float soft = clamp(baseStrength, 0.0, 1.0) * uSoftShade * smoothstep(uSoftGate0, uSoftGate1, baseStrength);
+    float pencil = max(stroke * strokeStrength, soft);
+    pencil = max(pencil, vSolid * 0.78 * max(strokeStrength, 0.4)); // doors, windows
+    float depth = 1.0 - clamp(vDepth * uDepthScale, 0.0, 1.0);
+    gl_FragColor = vec4(normalStrength, pencil, depth, 0.0);
+  }
+`;
+
+function dataMaterial(tone, opts = {}) {
+  return new THREE.ShaderMaterial({
+    vertexShader: DATA_VERT,
+    fragmentShader: DATA_FRAG,
+    uniforms: {
+      uTone: { value: tone },
+      uTime: { value: 0 },
+      uWindAmp: { value: opts.windAmp ?? 0 },
+      uToneGrad: { value: opts.toneGrad ?? 0 },
+      uGradY0: { value: opts.gradY0 ?? 0 },
+      uGradY1: { value: opts.gradY1 ?? 1 },
+      uLightDir: { value: P.lightDir },
+      uStrokeDirection: { value: opts.strokeDir ?? P.strokeDir },
+      uSubdivision: { value: opts.subdivision ?? P.subdivision },
+      uStrokeLightOffset: { value: opts.strokeOffset ?? P.strokeLightOffset },
+      uStrokeLightMultiplier: { value: opts.strokeMult ?? P.strokeLightMultiplier },
+      uStrokeTreshold: { value: opts.strokeTreshold ?? P.strokeTreshold },
+      uSoftShade: { value: opts.softShade ?? P.softShade },
+      uSoftGate0: { value: opts.softGate0 ?? 0.55 },
+      uSoftGate1: { value: opts.softGate1 ?? 0.8 },
+      uLodOffset: { value: opts.lodOffset ?? P.lodOffset },
+      uLodAmplitude: { value: opts.lodAmplitude ?? P.lodAmplitude },
+      uDepthScale: { value: P.depthScale }
+    }
+  });
+}
+
+/* ---------- the terrain marks: Barzan's land, authored from data.
+     Red channel = pencil marks. Green channel = baked shadows.
+     Roads, the river and the yards are ERASED — negative space. ---------- */
+
+const TEXN = 5120, PXM = TEXN / SPAN; // ~0.57 px per metre
+const wu = wx => (wx - CX) / SPAN + 0.5;
+const wv = wz => (wz - CZ) / SPAN + 0.5;
+const cxp = wx => wu(wx) * TEXN;
+const cyp = wz => wv(wz) * TEXN;
+// scene coords -> canvas (scene y is -world z)
+const sx = p => cxp(p[0]);
+const sy = p => cyp(-p[1]);
+
+function buildMarks() {
+  const c = document.createElement('canvas');
+  c.width = c.height = TEXN;
+  const x = c.getContext('2d');
+  x.fillStyle = '#000';
+  x.fillRect(0, 0, TEXN, TEXN);
+  const rng = mulberry32(7);
+  const red = a => `rgba(255,0,0,${a})`;
+
+  // no tooth pass: paper grain lives in the composite, never in the marks.
+  // every mark below is ONE flat ink; tone is made by density (their law).
+
+  function pathPoly(poly) {
+    x.beginPath();
+    poly.forEach((p, k) => k ? x.lineTo(sx(p), sy(p)) : x.moveTo(sx(p), sy(p)));
+    x.closePath();
+  }
+
+  // --- parcel geometry (C1): the land is a tiled fabric, seams are absence ---
+  function clipHalf(poly, px2, py2, nx, ny) {
+    const out = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      const da = (a[0] - px2) * nx + (a[1] - py2) * ny;
+      const db = (b[0] - px2) * nx + (b[1] - py2) * ny;
+      if (da <= 0) out.push(a);
+      if ((da < 0) !== (db < 0)) {
+        const t = da / (da - db);
+        out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      }
+    }
+    return out;
+  }
+  function polyCentroid(poly) {
+    let cx2 = 0, cy2 = 0;
+    poly.forEach(p => { cx2 += p[0]; cy2 += p[1]; });
+    return [cx2 / poly.length, cy2 / poly.length];
+  }
+  function polySpan(poly) {
+    let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
+    poly.forEach(p => {
+      mnx = Math.min(mnx, p[0]); mxx = Math.max(mxx, p[0]);
+      mny = Math.min(mny, p[1]); mxy = Math.max(mxy, p[1]);
+    });
+    return Math.max(mxx - mnx, mxy - mny);
+  }
+  function insetPoly(poly, m) {
+    const [cx2, cy2] = polyCentroid(poly);
+    const s2 = Math.max(0.55, 1 - m / Math.max(20, polySpan(poly) * 0.5));
+    return poly.map(p => [cx2 + (p[0] - cx2) * s2, cy2 + (p[1] - cy2) * s2]);
+  }
+  // recursive convex split: every big field becomes 2-6 sub-parcels
+  function splitParcel(poly, rngS, depth = 0) {
+    if (poly.length < 3) return [];
+    if (polySpan(poly) < 150 || depth >= 3 || rngS() < 0.18 * depth) return [poly];
+    const [cx2, cy2] = polyCentroid(poly);
+    const a = rngS() * Math.PI;
+    const nx = Math.cos(a), ny = Math.sin(a);
+    const off = (rngS() - 0.5) * polySpan(poly) * 0.2;
+    const px2 = cx2 + nx * off, py2 = cy2 + ny * off;
+    return [
+      ...splitParcel(clipHalf(poly, px2, py2, nx, ny), rngS, depth + 1),
+      ...splitParcel(clipHalf(poly, px2, py2, -nx, -ny), rngS, depth + 1)
+    ];
+  }
+
+  // --- scrub tufts (C1c): short strokes lying along the contour, never circles ---
+  const tRng = mulberry32(31);
+  const ivx = X => (X / TEXN - 0.5) * SPAN + CX;
+  const ivy = Y => -((Y / TEXN - 0.5) * SPAN + CZ);
+  function tuftAt(wx, sy2, R) {
+    const e = 40;
+    const gx2 = sampleH(wx + e, sy2) - sampleH(wx - e, sy2);
+    const gy2 = sampleH(wx, sy2 + e) - sampleH(wx, sy2 - e);
+    const base = Math.hypot(gx2, gy2) < 0.5 ? tRng() * 3.14 : Math.atan2(-gx2, -gy2);
+    const a = base + (tRng() - 0.5) * 0.5;
+    const L2 = R * (0.7 + tRng() * 0.8);
+    const X = cxp(wx), Y = cyp(-sy2);
+    const bow = (tRng() - 0.5) * L2;
+    x.beginPath();
+    x.moveTo(X - Math.cos(a) * L2, Y - Math.sin(a) * L2);
+    x.quadraticCurveTo(X + Math.cos(a + 1.57) * bow, Y + Math.sin(a + 1.57) * bow,
+                       X + Math.cos(a) * L2, Y + Math.sin(a) * L2);
+    x.stroke();
+  }
+
+  // village ground (Atelier Review 04): each surveyed residential block gets a
+  // faint FLAT under-tint clipped to its polygon, painted under the roof stamps,
+  // so the town prints as connected neighbourhood MASSES that the white street
+  // erase then subdivides into blocks — the town becomes the hero by COVERAGE
+  // (near-solid) against the sparse oak stipple of the slopes, not a denser dot.
+  S.residential.forEach(poly => {
+    pathPoly(poly);
+    x.fillStyle = '#f00';
+    x.globalAlpha = 0.3;
+    x.fill();
+  });
+  x.globalAlpha = 1;
+
+  // farm polygons: ruled two-layer parcels, each its own angle/weight
+  function parcel(poly, angleDeg, spacingM, weight) {
+    x.save();
+    pathPoly(poly);
+    x.clip();
+    let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
+    poly.forEach(p => {
+      mnx = Math.min(mnx, sx(p)); mxx = Math.max(mxx, sx(p));
+      mny = Math.min(mny, sy(p)); mxy = Math.max(mxy, sy(p));
+    });
+    const pcx = (mnx + mxx) / 2, pcy = (mny + mxy) / 2;
+    const L = Math.hypot(mxx - mnx, mxy - mny) / 2 + 24;
+    const a = angleDeg * Math.PI / 180;
+    const dx = Math.cos(a), dy = Math.sin(a);
+    x.strokeStyle = '#f00';
+    x.lineCap = 'round';
+    // one flat ink; parcel weight controls how many rules survive, not their tone
+    function rows(spPx, width, keepP, dashA, dashB, amp, wl) {
+      x.lineWidth = width;
+      x.globalAlpha = 0.8;
+      const n = Math.ceil(L / spPx) + 2;
+      for (let i = -n; i <= n; i++) {
+        if (rng() > keepP) continue;
+        const ox = pcx - dy * i * spPx, oy = pcy + dx * i * spPx;
+        x.setLineDash([dashA + rng() * dashA, dashB + rng() * dashB]);
+        x.lineDashOffset = rng() * 30;
+        const ph = rng() * 6.28, drift = (rng() - 0.5) * amp * 1.6;
+        x.beginPath();
+        for (let t = -L; t <= L; t += 14) {
+          const o = Math.sin(t / wl * 6.28 + ph) * amp + (rng() - 0.5) * amp * 0.4 + drift * (t / L);
+          const px2 = ox + dx * t - dy * o, py2 = oy + dy * t + dx * o;
+          t === -L ? x.moveTo(px2, py2) : x.lineTo(px2, py2);
+        }
+        x.stroke();
+      }
+      x.setLineDash([]);
+    }
+    rows(Math.max(6.5, spacingM * PXM), 1.0, Math.min(0.9, 0.35 + weight * 0.22), 12, 2, 1.1, 170);
+    x.restore();
+  }
+  // every big field becomes a fabric of sub-parcels, each with its own
+  // angle and spacing, separated by unruled seams — absence, their way
+  const parcelAngles = [18, -12, 105, 8, 40, -25, 65, -5];
+  const parcelWeights = [1.3, 0.75, 2.2, 0.5, 1.0, 1.1, 0.85, 1.4];
+  const fieldRng = mulberry32(133);
+  const seamHedges = [];
+  S.farm.forEach((poly, i) => {
+    splitParcel(poly, fieldRng).forEach((sub, k) => {
+      const subP = insetPoly(sub, 4);
+      parcel(subP, parcelAngles[(i + k) % 8] + (fieldRng() - 0.5) * 30,
+             7 + fieldRng() * 4, parcelWeights[(i * 3 + k) % 8]);
+      if (fieldRng() < 0.4) seamHedges.push(subP);
+    });
+  });
+
+  // scrub: dry hillside brush as loose stipple
+  S.scrub.forEach(poly => {
+    x.save();
+    pathPoly(poly);
+    x.clip();
+    let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
+    poly.forEach(p => {
+      mnx = Math.min(mnx, sx(p)); mxx = Math.max(mxx, sx(p));
+      mny = Math.min(mny, sy(p)); mxy = Math.max(mxy, sy(p));
+    });
+    const area = (mxx - mnx) * (mxy - mny);
+    x.strokeStyle = '#f00';
+    x.lineWidth = 0.9;
+    x.globalAlpha = 0.8;
+    for (let i = 0; i < area / 230; i++) {
+      if (rng() < 0.2) continue;
+      const px2 = mnx + rng() * (mxx - mnx), py2 = mny + rng() * (mxy - mny);
+      tuftAt(ivx(px2), ivy(py2), 2.0);
+    }
+    x.restore();
+  });
+
+  // OSM is sparse here; the landscape is not. Invent from the land:
+  // fields ringing every settlement, oak woodland on the slopes.
+  const rng2 = mulberry32(99);
+  // invented parcels TILE outward from every settlement until the slopes
+  // refuse them — adjacency without overlap, seams from the inset
+  const placedFields = [];
+  const slopeAt = (wx, sy2) => {
+    const e = 50;
+    return Math.hypot(sampleH(wx + e, sy2) - sampleH(wx - e, sy2),
+                      sampleH(wx, sy2 + e) - sampleH(wx, sy2 - e)) / (2 * e);
+  };
+  const nearWater = (wx, wy2) => {
+    for (const l of S.streams) for (const p of l) if ((p[0]-wx)**2 + (p[1]-wy2)**2 < 250*250) return true;
+    for (const l of S.river) for (const p of l) if ((p[0]-wx)**2 + (p[1]-wy2)**2 < 250*250) return true;
+    return false;
+  };
+  S.places.filter(pl => pl.t !== 'locality').forEach(pl => {
+    const n = pl.t === 'town' ? 10 : 4;
+    let tries = 0, made = 0;
+    while (made < n && tries++ < n * 8) {
+      const a = rng2() * 6.28, d = 170 + rng2() * 300;
+      const cx2 = pl.x + Math.cos(a) * d, cy2 = pl.y + Math.sin(a) * d;
+      const csl = slopeAt(cx2, cy2);
+      if (csl > 0.14) continue;                       // fields keep to the flat valley floor
+      if (csl > 0.12 && !nearWater(cx2, cy2)) continue; // otherwise only hugging water
+      const w2 = 100 + rng2() * 170, h2 = 80 + rng2() * 130, rot = rng2() * 3.14;
+      const rad = Math.max(w2, h2) * 0.5;
+      let bad = false;
+      for (const bp of S.buildings) {
+        if ((bp[0][0] - cx2) ** 2 + (bp[0][1] - cy2) ** 2 < 130 * 130) { bad = true; break; }
+      }
+      if (!bad) for (const [ox, oy, orad] of placedFields) {
+        if ((ox - cx2) ** 2 + (oy - cy2) ** 2 < (rad + orad) ** 2 * 0.42) { bad = true; break; }
+      }
+      if (bad) continue;
+      placedFields.push([cx2, cy2, rad]);
+      const ca = Math.cos(rot), sa = Math.sin(rot);
+      const poly = [[-w2/2,-h2/2],[w2/2,-h2/2],[w2/2,h2/2],[-w2/2,h2/2]]
+        .map(([qx, qy]) => [cx2 + qx*ca - qy*sa, cy2 + qx*sa + qy*ca]);
+      const sub = insetPoly(poly, 4);
+      parcel(sub, rot * 57.3 + (rng2() < 0.5 ? 90 : 0) + (rng2() - 0.5) * 24,
+             3.8 + rng2() * 1.8, 0.5 + rng2() * 1.2);
+      if (rng2() < 0.3) seamHedges.push(sub);
+      made++;
+    }
+  });
+
+  // hedgerow scribble: tree-lines along field seams and stream banks,
+  // their signature companion of ways and boundaries (C1d)
+  function hedgerow(pts, prob, offPx) {
+    for (let i = 0; i < pts.length - 1; i++) {
+      const X0 = sx(pts[i]), Y0 = sy(pts[i]);
+      const X1 = sx(pts[i + 1]), Y1 = sy(pts[i + 1]);
+      const len = Math.hypot(X1 - X0, Y1 - Y0);
+      const steps = Math.max(1, Math.floor(len / 7));
+      for (let s2 = 0; s2 <= steps; s2++) {
+        if (rng() > prob) continue;
+        const t = s2 / steps;
+        const X = X0 + (X1 - X0) * t + (rng() - 0.5) * offPx;
+        const Y = Y0 + (Y1 - Y0) * t + (rng() - 0.5) * offPx;
+        x.beginPath();
+        x.arc(X, Y, 0.7 + rng() * 1.3, rng() * 6.3, rng() * 6.3 + 3.2 + rng() * 2.4);
+        x.stroke();
+      }
+    }
+  }
+  x.strokeStyle = '#f00';
+  x.lineWidth = 0.9;
+  x.globalAlpha = 0.8;
+  S.streams.forEach(l => hedgerow(l, 0.5, 4));
+  seamHedges.forEach(poly => hedgerow([...poly, poly[0]], 0.35, 3));
+  // garden plots woven between the houses — the village interior
+  // is a fabric of small worked squares, never bare ground
+  const gRng = mulberry32(55);
+  let gplots = 0, gtries = 0;
+  while (gplots < 90 && gtries++ < 1400) {
+    const bf = S.buildings[(gRng() * S.buildings.length) | 0];
+    let cx3 = 0, cy3 = 0;
+    bf.forEach(pp => { cx3 += pp[0]; cy3 += pp[1]; });
+    cx3 /= bf.length; cy3 /= bf.length;
+    const ga = gRng() * 6.28, gd = 24 + gRng() * 32;
+    const gx = cx3 + Math.cos(ga) * gd, gy = cy3 + Math.sin(ga) * gd;
+    let ok = true;
+    for (const poly of S.buildings) {
+      if ((poly[0][0] - gx) ** 2 + (poly[0][1] - gy) ** 2 < 17 * 17) { ok = false; break; }
+    }
+    if (!ok) continue;
+    const gw = 12 + gRng() * 14, gh = 9 + gRng() * 11, grot = gRng() * 3.14;
+    const gca = Math.cos(grot), gsa = Math.sin(grot);
+    const gpoly = [[-gw/2,-gh/2],[gw/2,-gh/2],[gw/2,gh/2],[-gw/2,gh/2]]
+      .map(([qx, qy]) => [gx + qx*gca - qy*gsa, gy + qx*gsa + qy*gca]);
+    parcel(gpoly, grot * 57.3, 2.2, 1.0);
+    gplots++;
+  }
+
+  // NO forest-blob masses, NO gorge-forest masses (Atelier Review 04): the real
+  // slopes are a light DOTTING of single oaks, not solid scribble ellipses. The
+  // terrain-following oak field below replaces both, at ~1/10th the ink.
+  // TERRAIN-FOLLOWING OAK FIELD (Atelier Review 06): density = gully(concave,
+  // water-collecting) + near-stream + north-aspect + flat-valley, zeroed on
+  // ridges, steep ground, and over the settlements. Rejection-sampled to a
+  // light stipple that draws the folds and the stream lines. The SAME OAK_FIELD
+  // carries the 3D oaks in placeTrees (1:1). One small arc per oak.
+  const cl = (v, a, b) => Math.max(a, Math.min(b, v));
+  const waterPts = [];
+  S.streams.forEach(l => { for (let i = 0; i < l.length; i += 2) waterPts.push(l[i]); });
+  S.river.forEach(l => { for (let i = 0; i < l.length; i += 2) waterPts.push(l[i]); });
+  const distWater = (wx, wy2) => {
+    let m = 1e12;
+    for (const p of waterPts) { const dx = p[0] - wx, dy = p[1] - wy2, d2 = dx*dx + dy*dy; if (d2 < m) m = d2; }
+    return Math.sqrt(m);
+  };
+  const oakClear = (wx, wy2) => {
+    for (const pl of S.places) { const dx = pl.x - wx, dy = pl.y - wy2; if (dx*dx + dy*dy < 220*220) return true; }
+    return false;
+  };
+  function oakDensity(wx, wz) {
+    const syc = -wz, e = 55;
+    if (oakClear(wx, syc)) return 0;
+    const slope = Math.hypot(sampleH(wx + e, syc) - sampleH(wx - e, syc),
+                             sampleH(wx, syc + e) - sampleH(wx, syc - e)) / (2 * e);
+    if (slope > 0.62) return 0;
+    const v = sampleVeg(wx, wz);   // REAL satellite-derived vegetation fraction
+    if (v < 0.10) return 0;        // no oaks on bare rock or built ground
+    return cl(v * 0.75, 0, 0.6);
+  }
+  const oRng = mulberry32(313);
+  let oCand = 0;
+  while (OAK_FIELD.length < 8000 && oCand++ < 70000) {
+    const a = oRng() * 6.28, d = 620 + Math.sqrt(oRng()) * 3580;
+    const wx = CX + Math.cos(a) * d, wz = CZ + Math.sin(a) * d;
+    if (oRng() > oakDensity(wx, wz)) continue;
+    OAK_FIELD.push([wx, wz]);
+  }
+  x.strokeStyle = '#f00';
+  x.lineWidth = 0.9;
+  x.globalAlpha = 0.8;
+  OAK_FIELD.forEach(([wx, wz]) => {
+    const aa = oRng() * 6.28;
+    x.beginPath();
+    x.arc(cxp(wx), cyp(wz), 0.6 + oRng() * 1.0, aa, aa + 3.6 + oRng() * 1.8);
+    x.stroke();
+  });
+
+  // cemetery: quiet fine stipple with a border
+  S.cemetery.forEach(poly => {
+    x.save();
+    pathPoly(poly);
+    x.clip();
+    let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
+    poly.forEach(p => {
+      mnx = Math.min(mnx, sx(p)); mxx = Math.max(mxx, sx(p));
+      mny = Math.min(mny, sy(p)); mxy = Math.max(mxy, sy(p));
+    });
+    x.fillStyle = '#f00';
+    x.globalAlpha = 0.8;
+    for (let i = 0; i < 350; i++) {
+      x.fillRect(mnx + rng() * (mxx - mnx), mny + rng() * (mxy - mny), 1.4, 2.4);
+    }
+    x.restore();
+    pathPoly(poly);
+    x.globalAlpha = 0.8;
+    x.strokeStyle = '#f00';
+    x.lineWidth = 1;
+    x.setLineDash([6, 5]);
+    x.stroke();
+    x.setLineDash([]);
+  });
+
+  // roads carry NO positive treatment here: no corridor, no dots, no rails.
+  // a road is where the drawing stops (their R-channel law). The single
+  // remaining edge hairline is added in finishRoadInk() AFTER the normal
+  // source is captured, so road ink never reaches the relief (Atelier A1).
+  x.lineCap = 'round';
+  x.lineJoin = 'round';
+
+  // THE TOWN, DRAWN (Atelier R03, highest leverage): every real footprint
+  // is inked as a roof rectangle at true angle/size, inset ~1.2 m so
+  // adjacent roofs keep a paper seam (so a block reads as MANY houses, not
+  // one blob). The minor streets below then erase white lanes THROUGH this
+  // built mass — the town becomes organized blocks, streets as pure absence.
+  // (footprintFeatures is a hoisted function decl, safe to call here.)
+  x.fillStyle = '#f00';
+  x.globalAlpha = 0.8;
+  S.buildings.map(footprintFeatures).forEach(f => {
+    const ca = Math.cos(f.ang), sa = Math.sin(f.ang);
+    const hw = Math.max(1.2, f.w / 2 - 1.2), hd = Math.max(1.0, f.d / 2 - 1.2);
+    x.beginPath();
+    [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].forEach(([u, v], k) => {
+      const px2 = f.x + u * ca - v * sa, py2 = f.y + u * sa + v * ca;
+      const X = sx([px2, py2]), Y = sy([px2, py2]);
+      k ? x.lineTo(X, Y) : x.moveTo(X, Y);
+    });
+    x.closePath();
+    x.fill();
+  });
+  x.globalAlpha = 1;
+
+  // ROADS AND WATER: erased. Negative space, like theirs.
+  x.globalCompositeOperation = 'destination-out';
+  x.globalAlpha = 1;
+  x.strokeStyle = '#fff';
+  x.lineCap = 'round';
+  x.lineJoin = 'round';
+  function erasePath(pts, widthM) {
+    x.lineWidth = widthM * PXM;
+    x.beginPath();
+    pts.forEach((p, k) => k ? x.lineTo(sx(p), sy(p)) : x.moveTo(sx(p), sy(p)));
+    x.stroke();
+  }
+  S.tracks.forEach(l => erasePath(l, 4));
+  S.roadsMinor.forEach(l => erasePath(l, 8));
+  S.roadsMajor.forEach(l => erasePath(l, 9));
+  S.streams.forEach(l => erasePath(l, 3));
+  S.river.forEach(l => erasePath(l, 34));
+  // NO yard-erase now: it used to punch an 8 m white hole at every house,
+  // which is precisely what left the town a field of holes. The streets above
+  // carve the negative space; the inked roofs are the figure (Atelier R03).
+  x.globalAlpha = 1;
+  x.globalCompositeOperation = 'source-over';
+
+  // the river's water: wavering flow lines inside the erased band
+  x.strokeStyle = '#f00';
+  x.lineCap = 'round';
+  S.river.forEach(pts => {
+    for (let k = -1; k <= 1; k++) {
+      x.lineWidth = 1.4;
+      x.globalAlpha = 0.8;
+      x.setLineDash([30 + Math.random() * 40, 14 + Math.random() * 10]);
+      x.beginPath();
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p = pts[i], q = pts[i + 1];
+        const ddx = sx(q) - sx(p), ddy = sy(q) - sy(p);
+        const len = Math.hypot(ddx, ddy) || 1;
+        const nx = -ddy / len, ny = ddx / len;
+        const off = k * 8 * PXM + Math.sin(i * 0.7) * 2.5;
+        const X = sx(p) + nx * off, Y = sy(p) + ny * off;
+        i === 0 ? x.moveTo(X, Y) : x.lineTo(X, Y);
+      }
+      x.stroke();
+    }
+  });
+  x.setLineDash([]);
+
+  return c;
+}
+
+const FOREST_SPOTS = [];
+const OAK_FIELD = [];
+const marksCanvas = buildMarks();
+
+// baked shadows go to the GREEN channel, additively, after erases.
+// ONE world direction for all of them, derived from P.lightDir:
+// sun west-south-high => shadows thrown along (+0.844, -0.537) in world x/z.
+const SHW = (() => {
+  const l = P.lightDir, m = Math.hypot(l.x, l.z);
+  return { x: -l.x / m, z: -l.z / m, throwPerH: m / l.y };
+})();
+// a crown's shadow: an offset ellipse aligned to the light, soft rim,
+// low strength so neighbouring stamps FUSE into one bed instead of stacking
+function bakeShadowEllipse(ctx, wx, wz, r, strength, elong = 1.25) {
+  const d = r * 0.55;
+  const px2 = cxp(wx + SHW.x * d), py2 = cyp(wz + SHW.z * d);
+  ctx.save();
+  ctx.translate(px2, py2);
+  ctx.rotate(Math.atan2(SHW.z, SHW.x));
+  ctx.scale(elong, 0.8);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r * PXM);
+  g.addColorStop(0, `rgba(0,255,0,${strength})`);
+  g.addColorStop(0.6, `rgba(0,255,0,${strength * 0.8})`);
+  g.addColorStop(1, 'rgba(0,255,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(-r * PXM, -r * PXM, r * 2 * PXM, r * 2 * PXM);
+  ctx.restore();
+}
+// a house's shadow: its own footprint thrown along the light, ~1.2x height
+function bakeHouseShadow(ctx, f, hM, strength) {
+  const L2 = hM * SHW.throwPerH * 1.2;
+  const dxs = SHW.x, dys = -SHW.z; // world dir -> scene coords (scene y = -world z)
+  const ca = Math.cos(f.ang), sa = Math.sin(f.ang);
+  const hw = f.w * 0.55, hd = f.d * 0.55;
+  ctx.save();
+  ctx.filter = 'blur(1.6px)';
+  ctx.fillStyle = `rgba(0,255,0,${strength})`;
+  ctx.beginPath();
+  [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].forEach(([u, v], k) => {
+    const sxp = f.x + u * ca - v * sa + dxs * L2 * 0.5;
+    const syp = f.y + u * sa + v * ca + dys * L2 * 0.5;
+    k ? ctx.lineTo(sx([sxp, syp]), sy([sxp, syp])) : ctx.moveTo(sx([sxp, syp]), sy([sxp, syp]));
+  });
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+const mctx = marksCanvas.getContext('2d');
+mctx.globalCompositeOperation = 'lighter';
+
+// roads receive NO ink at all — a road is only where the drawing stops.
+// (an edge hairline was tried: at our resolution the surviving half-pixel
+// rail flickers across the binarize step and reads as bead-chains.)
+// this final cut runs after the shadow bed so roads cut marks AND bed,
+// exactly their R-channel model.
+function finishRoadInk() {
+  const x = mctx;
+  x.save();
+  x.lineCap = 'round';
+  x.lineJoin = 'round';
+  x.globalCompositeOperation = 'destination-out';
+  x.globalAlpha = 1;
+  const draw = (lines, w) => lines.forEach(l => {
+    x.lineWidth = w;
+    x.beginPath();
+    l.forEach((q, k) => k ? x.lineTo(sx(q), sy(q)) : x.moveTo(sx(q), sy(q)));
+    x.stroke();
+  });
+  draw(S.roadsMajor, 9 * PXM);
+  draw(S.roadsMinor, 8 * PXM);
+  draw(S.tracks, 4 * PXM);
+  x.restore();
+
+  // R1: across BARE land a way is drawn the old-map way — a broken
+  // hairline of dashes — but only where there is nothing to erase,
+  // and never inside the settlements (Atelier Review 02)
+  const GN = 256, cell = TEXN / GN;
+  const gcv = document.createElement('canvas');
+  gcv.width = gcv.height = GN;
+  const gctx = gcv.getContext('2d');
+  gctx.drawImage(marksCanvas, 0, 0, GN, GN);
+  const gd = gctx.getImageData(0, 0, GN, GN).data;
+  const settled = new Uint8Array(GN * GN);
+  const stamp = (X, Y, rad) => {
+    const c0 = Math.max(0, (X / cell | 0) - rad), c1 = Math.min(GN - 1, (X / cell | 0) + rad);
+    const r0 = Math.max(0, (Y / cell | 0) - rad), r1 = Math.min(GN - 1, (Y / cell | 0) + rad);
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) settled[r * GN + c] = 1;
+  };
+  S.buildings.forEach(poly => stamp(sx(poly[0]), sy(poly[0]), 3));
+  S.residential.forEach(poly => poly.forEach(p => stamp(sx(p), sy(p), 2)));
+  const dRng = mulberry32(77);
+  x.save();
+  x.strokeStyle = '#f00';
+  x.globalAlpha = 0.8;
+  x.lineWidth = 0.7;
+  x.lineCap = 'round';
+  const dashWalk = lines => lines.forEach(l => {
+    let acc = 0, next = dRng() * 24;
+    for (let i = 0; i < l.length - 1; i++) {
+      const X0 = sx(l[i]), Y0 = sy(l[i]), X1 = sx(l[i + 1]), Y1 = sy(l[i + 1]);
+      const seg = Math.hypot(X1 - X0, Y1 - Y0);
+      if (!seg) continue;
+      const ux = (X1 - X0) / seg, uy = (Y1 - Y0) / seg;
+      while (next < acc + seg) {
+        const t = next - acc;
+        const Xd = X0 + ux * t, Yd = Y0 + uy * t;
+        const gc = Math.min(GN - 1, Math.max(0, Xd / cell | 0));
+        const gr = Math.min(GN - 1, Math.max(0, Yd / cell | 0));
+        const gi = gr * GN + gc;
+        const dl = 8 + dRng() * 5;
+        if (gd[gi * 4] < 6 && !settled[gi]) {
+          x.beginPath();
+          x.moveTo(Xd, Yd);
+          x.lineTo(Xd + ux * Math.min(dl, seg - t), Yd + uy * Math.min(dl, seg - t));
+          x.stroke();
+        }
+        next += dl + 12 + dRng() * 8;
+      }
+      acc += seg;
+    }
+  });
+  dashWalk(S.roadsMajor);
+  dashWalk(S.roadsMinor);
+  dashWalk(S.tracks);
+  x.restore();
+}
+
+/* ---------- relief: normal map generated FROM the drawing ---------- */
+
+function normalFromMarks(srcCanvas) {
+  const N = 1024;
+  const c = document.createElement('canvas');
+  c.width = c.height = N;
+  const x = c.getContext('2d');
+  x.filter = 'blur(2px)';
+  x.drawImage(srcCanvas, 0, 0, N, N);
+  const src = x.getImageData(0, 0, N, N).data;
+  const out = x.createImageData(N, N);
+  const h = (i, j) => src[((Math.min(N - 1, Math.max(0, j))) * N + Math.min(N - 1, Math.max(0, i))) * 4] / 255;
+  const REL = 3.0;
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      const dx = (h(i + 1, j) - h(i - 1, j)) * REL;
+      const dy = (h(i, j + 1) - h(i, j - 1)) * REL;
+      const inv = 1 / Math.hypot(dx, dy, 1);
+      const o = (j * N + i) * 4;
+      out.data[o] = (-dx * inv * 0.5 + 0.5) * 255;
+      out.data[o + 1] = (-dy * inv * 0.5 + 0.5) * 255;
+      out.data[o + 2] = (inv * 0.5 + 0.5) * 255;
+      out.data[o + 3] = 255;
+    }
+  }
+  x.putImageData(out, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.flipY = false; // uv mapping is world-direct; canvas row 0 = north
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
+/* ---------- terrain mesh from the SRTM grid ---------- */
+
+const GROUND_FRAG = /* glsl */`
+  uniform float uDepthScale;
+  uniform sampler2D uMarks;
+  uniform sampler2D uMarksNormal;
+  uniform float uNormalMult;
+  uniform vec3 uLightDir;
+  uniform vec2 uCenter;
+  uniform float uSpan;
+  varying vec3 vWorldPos;
+  varying vec3 vNormalV;
+  varying vec3 vNormalW;
+  varying float vDepth;
+  float gh2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float gvnoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(gh2(i), gh2(i + vec2(1, 0)), u.x),
+               mix(gh2(i + vec2(0, 1)), gh2(i + vec2(1, 1)), u.x), u.y);
+  }
+  void main() {
+    vec2 uv = (vWorldPos.xz - uCenter) / uSpan + 0.5;
+    vec4 md = texture2D(uMarks, uv);
+    // binarized: one flat ink value, tone comes from mark density (their step law)
+    float marks = step(0.18, md.r) * 0.4;
+    float shadowBake = md.g;
+    float edgeFade = 1.0 - smoothstep(3400.0, 4300.0, distance(vWorldPos.xz, uCenter));
+
+    vec3 nm = texture2D(uMarksNormal, uv).xyz * 2.0 - 1.0;
+    vec3 geoN = normalize(vNormalW);
+    vec3 worldN = normalize(geoN + vec3(nm.x, 0.0, nm.y) * uNormalMult * edgeFade);
+    vec3 viewN = normalize((viewMatrix * vec4(worldN, 0.0)).xyz);
+    float normalStrength = viewN.x * 0.5 + 0.5;
+
+    vec3 L = normalize(uLightDir);
+    // the mountains: shade slopes carry a soft wash
+    float lit0 = clamp(L.y, 0.0, 1.0);
+    float hillShade = max(lit0 - clamp(dot(geoN, L), 0.0, 1.0), 0.0);
+
+    // marks are flat ink; the marks normal feeds ONLY the outline channel above
+    float pencil = (marks + shadowBake * 0.75) * edgeFade;
+
+    // the mountains draw themselves: wobbling hachure strokes on
+    // steep and shaded slopes, melting to a wash with distance
+    float slope = 1.0 - geoN.y;
+    float hcoord = dot(vWorldPos.xz, vec2(0.42, 0.91));
+    hcoord += (gvnoise(vWorldPos.xz * 0.013) - 0.5) * 34.0;
+    float hstr = abs(mod(hcoord / 24.0, 1.0) - 0.5) * 2.0;
+    float hgate = smoothstep(0.12, 0.45, slope) * (0.34 + hillShade * 2.6);
+    float hatch = pow(clamp(hstr - (1.0 - hgate), 0.0, 1.0), 0.35) * 0.42;
+    float hachureLod = 1.0 - clamp((vDepth - 1600.0) / 1600.0, 0.0, 1.0);
+    float washGrain = 0.55 + 0.9 * gvnoise(vWorldPos.xz * 0.55);
+    pencil += mix(hillShade * 0.42 + smoothstep(0.28, 0.6, slope) * 0.12, hatch * 1.15 + hillShade * 0.26 * washGrain, hachureLod);
+
+    // underfoot, close range: worn-earth grain where the land is marked
+    float near = 1.0 - clamp((vDepth - 120.0) / 300.0, 0.0, 1.0);
+    if (near > 0.0) {
+      float g1 = gvnoise(vWorldPos.xz * 1.7);
+      float g2 = gvnoise(vWorldPos.xz * 0.31 + 51.0);
+      float ground = smoothstep(0.78, 0.95, g1) * 0.1 + smoothstep(0.6, 0.9, g2) * 0.05;
+      pencil += ground * near * (0.35 + smoothstep(0.01, 0.08, marks) * 0.65);
+    }
+    pencil = clamp(pencil, 0.0, 1.0);
+
+    float depth = 1.0 - clamp(vDepth * uDepthScale, 0.0, 1.0);
+    gl_FragColor = vec4(normalStrength, pencil, depth, 0.0);
+  }
+`;
+
+function buildTerrain() {
+  const geo = new THREE.PlaneGeometry(W, H, G - 1, G - 1);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const wx = pos.getX(i), yN = pos.getY(i); // plane local y maps to scene y
+    // +/-0.5 m smooth dither breaks the SRTM integer-metre terracing so it does
+    // not surface as contour-steps on the oblique slopes (Atelier R01 C3)
+    const dth = (Math.sin(wx * 0.037 + yN * 0.011) + Math.sin(wx * 0.013 - yN * 0.041) + Math.sin(wx * 0.071 + yN * 0.053)) * 0.17;
+    pos.setZ(i, sampleH(wx, yN) + dth);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/* ---------- houses: instanced archetypes on real footprints ---------- */
+
+// merged multi-box archetype with per-vertex tone + solid flags
+function boxPart(w, h, d, x0, y0, z0, tone, solid = 0) {
+  const g = new THREE.BoxGeometry(w, h, d).toNonIndexed().translate(x0, y0, z0);
+  const n = g.attributes.position.count;
+  g.setAttribute('aTone', new THREE.BufferAttribute(new Float32Array(n).fill(tone), 1));
+  g.setAttribute('aSolid', new THREE.BufferAttribute(new Float32Array(n).fill(solid), 1));
+  return g;
+}
+
+function houseArchetype(kind) {
+  const parts = [
+    boxPart(9, 4.6, 7, 0, 2.3, 0, 0.85),
+    boxPart(9.4, 0.5, 7.4, 0, 4.85, 0, 0.88),
+    boxPart(8.8, 0.12, 6.8, 0, 5.16, 0, 0.42),
+    boxPart(1.5, 2.6, 0.15, 1.1, 1.3, 3.56, 0.16, 1),
+    boxPart(1.1, 1.2, 0.15, -2.2, 2.9, 3.56, 0.22, 1),
+    boxPart(1.1, 1.2, 0.15, 4.56, 2.9, 0.9, 0.22, 1).rotateY(Math.PI / 2)
+  ];
+  if (kind === 1) { // stair-head room on the roof
+    parts.push(boxPart(2.8, 2.0, 2.4, -2.4, 6.1, -1.5, 0.85));
+    parts.push(boxPart(3.1, 0.3, 2.7, -2.4, 7.2, -1.5, 0.88));
+  }
+  if (kind === 2) { // long house
+    parts.push(boxPart(4.5, 3.4, 6.4, 6.4, 1.7, 0, 0.85));
+    parts.push(boxPart(4.8, 0.4, 6.7, 6.4, 3.6, 0, 0.88));
+    parts.push(boxPart(4.3, 0.1, 6.2, 6.4, 3.85, 0, 0.42));
+  }
+  return mergeGeometries(parts);
+}
+
+function footprintFeatures(poly) {
+  let cx2 = 0, cy2 = 0;
+  poly.forEach(p => { cx2 += p[0]; cy2 += p[1]; });
+  cx2 /= poly.length; cy2 /= poly.length;
+  // dominant edge angle
+  let bl = 0, ba = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i], q = poly[(i + 1) % poly.length];
+    const l = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    if (l > bl) { bl = l; ba = Math.atan2(q[1] - p[1], q[0] - p[0]); }
+  }
+  // extent along/across that angle
+  const ca = Math.cos(ba), sa = Math.sin(ba);
+  let mnU = 1e9, mxU = -1e9, mnV = 1e9, mxV = -1e9;
+  poly.forEach(p => {
+    const u = (p[0] - cx2) * ca + (p[1] - cy2) * sa;
+    const v = -(p[0] - cx2) * sa + (p[1] - cy2) * ca;
+    mnU = Math.min(mnU, u); mxU = Math.max(mxU, u);
+    mnV = Math.min(mnV, v); mxV = Math.max(mxV, v);
+  });
+  return { x: cx2, y: cy2, ang: ba, w: Math.max(6, Math.min(18, mxU - mnU)), d: Math.max(4.5, Math.min(13, mxV - mnV)) };
+}
+
+const feats = S.buildings.map(footprintFeatures);
+
+function placeHouses() {
+  const mats = () => dataMaterial(0, {}); // tone rides in aTone
+  const kinds = [houseArchetype(0), houseArchetype(1), houseArchetype(2)];
+  const buckets = [[], [], []];
+  const rng = mulberry32(1926);
+  feats.forEach(f => {
+    let k = 0;
+    if (f.w > 12.5) k = 2;
+    else if (rng() < 0.22) k = 1;
+    buckets[k].push(f);
+  });
+  const dummy = new THREE.Object3D();
+  buckets.forEach((list, k) => {
+    if (!list.length) return;
+    const m = new THREE.InstancedMesh(kinds[k], mats(), list.length);
+    list.forEach((f, i) => {
+      const wx2 = f.x, wz2 = -f.y;
+      const hScale = 0.9 + rng() * 0.25;
+      dummy.position.set(wx2, sampleH(f.x, f.y) - 0.25, wz2);
+      dummy.rotation.set(0, f.ang, 0); // real survey angle, not quantized
+      dummy.scale.set(f.w / 9, hScale, f.d / 7);
+      dummy.updateMatrix();
+      m.setMatrixAt(i, dummy.matrix);
+      bakeHouseShadow(mctx, f, 4.6 * hScale, 0.17);
+    });
+    m.frustumCulled = false;
+    scene.add(m);
+  });
+}
+
+/* ---------- trees: lobed crowns + poplars, instanced ---------- */
+
+function jitterGeometry(geo, seed, amount, squash) {
+  const rng = mulberry32(seed);
+  const cache = new Map();
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const key = `${Math.round(x * 500)},${Math.round(y * 500)},${Math.round(z * 500)}`;
+    if (!cache.has(key)) cache.set(key, 1 + (rng() - 0.5) * amount);
+    const s = cache.get(key);
+    p.setXYZ(i, x * s, y * s * squash, z * s);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+function crownGeo(r, detail, seed, squash = 0.88, amount = 0.18) {
+  return jitterGeometry(new THREE.IcosahedronGeometry(r, detail), seed, amount, squash);
+}
+function lobedCrown(r, seed, squash = 0.85, detail = 1) {
+  const rng = mulberry32(seed + 99);
+  const lobes = [crownGeo(r, detail, seed, squash)];
+  const n = 2 + Math.floor(rng() * 2);
+  for (let i = 0; i < n; i++) {
+    const a = rng() * Math.PI * 2;
+    lobes.push(crownGeo(r * (0.55 + rng() * 0.25), detail, seed + i * 7 + 1, squash, 0.18)
+      .translate(Math.cos(a) * r * 0.75, (rng() - 0.2) * r * 0.5, Math.sin(a) * r * 0.75));
+  }
+  return mergeGeometries(lobes);
+}
+
+function inPoly(px2, py2, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    if ((poly[i][1] > py2) !== (poly[j][1] > py2) &&
+        px2 < (poly[j][0] - poly[i][0]) * (py2 - poly[i][1]) / (poly[j][1] - poly[i][1]) + poly[i][0]) inside = !inside;
+  }
+  return inside;
+}
+
+function placeTrees() {
+  const trees = [], poplars = [];
+  const rng = mulberry32(4711);
+
+  // river banks: the Zab's gallery forest
+  S.river.forEach(pts => {
+    for (let i = 0; i < pts.length - 1; i += 1) {
+      const p = pts[i], q = pts[i + 1];
+      const segLen = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      const steps = Math.max(1, Math.round(segLen / 30));
+      for (let s2 = 0; s2 < steps; s2++) {
+        const t = s2 / steps;
+        const bx = p[0] + (q[0] - p[0]) * t, by = p[1] + (q[1] - p[1]) * t;
+        const ddx = q[0] - p[0], ddy = q[1] - p[1];
+        const len = Math.hypot(ddx, ddy) || 1;
+        const nx = -ddy / len, ny = ddx / len;
+        for (const side of [-1, 1]) {
+          if (rng() < 0.42) {
+            const off = 22 + rng() * 26;
+            trees.push([bx + nx * off * side, by + ny * off * side, 0.9 + rng() * 0.9]);
+          }
+          if (rng() < 0.06) {
+            const off = 20 + rng() * 14;
+            poplars.push([bx + nx * off * side, by + ny * off * side, 0.85 + rng() * 0.4]);
+          }
+        }
+      }
+    }
+  });
+
+  // scrub polygons: sparse wild trees
+  S.scrub.forEach(poly => {
+    let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
+    poly.forEach(p => {
+      mnx = Math.min(mnx, p[0]); mxx = Math.max(mxx, p[0]);
+      mny = Math.min(mny, p[1]); mxy = Math.max(mxy, p[1]);
+    });
+    const n = Math.min(120, ((mxx - mnx) * (mxy - mny)) / 9000);
+    for (let i = 0; i < n; i++) {
+      const px2 = mnx + rng() * (mxx - mnx), py2 = mny + rng() * (mxy - mny);
+      if (inPoly(px2, py2, poly)) trees.push([px2, py2, 0.55 + rng() * 0.7]);
+    }
+  });
+
+  // village trees: every house among crowns
+  feats.forEach(f => {
+    const nY = 2 + (rng() < 0.5 ? 1 : 0); // canopy 1.5-2x: crowns outnumber roofs
+    for (let k = 0; k < nY; k++) {
+      const a = rng() * Math.PI * 2, d = 9 + rng() * 11;
+      const tx3 = f.x + Math.cos(a) * d, ty3 = f.y + Math.sin(a) * d;
+      let clear = true;
+      for (const o of feats) {
+        const dd = (o.x - tx3) ** 2 + (o.y - ty3) ** 2;
+        if (dd < (o.w * 0.5 + 3.0) ** 2) { clear = false; break; }
+      }
+      if (clear) trees.push([tx3, ty3, 1.0 + rng() * 0.8]);
+    }
+  });
+
+  // cluster trees: crowns fill the gaps BETWEEN neighbouring houses,
+  // so the village reads as houses embedded in a canopy
+  for (let i = 0; i < feats.length; i++) {
+    const f = feats[i];
+    for (let j = i + 1; j < feats.length; j++) {
+      const o = feats[j];
+      const ddx = o.x - f.x, ddy = o.y - f.y;
+      const d2 = ddx * ddx + ddy * ddy;
+      if (d2 < 900 || d2 > 5600 || rng() > 0.3) continue;
+      const tx3 = f.x + ddx * (0.35 + rng() * 0.3) + (rng() - 0.5) * 13;
+      const ty3 = f.y + ddy * (0.35 + rng() * 0.3) + (rng() - 0.5) * 13;
+      let clear = true;
+      for (const b2 of feats) {
+        if ((b2.x - tx3) ** 2 + (b2.y - ty3) ** 2 < (b2.w * 0.5 + 2.5) ** 2) { clear = false; break; }
+      }
+      if (clear) trees.push([tx3, ty3, 0.75 + rng() * 0.75]);
+    }
+  }
+
+  // orchards: regular planted rows at the village edge, their signature
+  for (let oi = 0; oi < 6; oi++) {
+    const oa = rng() * 6.28, od = 240 + rng() * 280;
+    const ocx = CX + Math.cos(oa) * od, ocz = CZ + Math.sin(oa) * od;
+    let oclear = true;
+    for (const b2 of feats) {
+      if ((b2.x - ocx) ** 2 + (-b2.y - ocz) ** 2 < 70 * 70) { oclear = false; break; }
+    }
+    if (!oclear) continue;
+    const orot = rng() * 3.14, oca = Math.cos(orot), osa = Math.sin(orot);
+    const nr = 4 + (rng() * 3 | 0), nc = 5 + (rng() * 4 | 0);
+    for (let r = 0; r < nr; r++) {
+      for (let c = 0; c < nc; c++) {
+        const lx = (c - nc / 2) * 7.5, lz = (r - nr / 2) * 8;
+        const px2 = ocx + lx * oca - lz * osa + (rng() - 0.5) * 2;
+        const pz2 = ocz + lx * osa + lz * oca + (rng() - 0.5) * 2;
+        trees.push([px2, -pz2, 0.5 + rng() * 0.3]);
+      }
+    }
+  }
+
+  // cemetery cypresses
+  S.cemetery.forEach(poly => {
+    let cx2 = 0, cy2 = 0;
+    poly.forEach(p => { cx2 += p[0]; cy2 += p[1]; });
+    cx2 /= poly.length; cy2 /= poly.length;
+    for (let i = 0; i < 6; i++) {
+      poplars.push([cx2 + (rng() - 0.5) * 60, cy2 + (rng() - 0.5) * 45, 0.8 + rng() * 0.35]);
+    }
+  });
+
+  // avenue poplars on major roads near town
+  S.roadsMajor.forEach(pts => {
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p = pts[i];
+      if (Math.hypot(p[0] - CX, -p[1] - CZ) > 900) continue;
+      if (rng() < 0.3) {
+        const q = pts[i + 1];
+        const ddx = q[0] - p[0], ddy = q[1] - p[1];
+        const len = Math.hypot(ddx, ddy) || 1;
+        const side = rng() < 0.5 ? 1 : -1;
+        poplars.push([p[0] - ddy / len * 7 * side, p[1] + ddx / len * 7 * side, 0.8 + rng() * 0.4]);
+      }
+    }
+  });
+
+  // the wild fleet: forest masses + savanna oaks over all the land
+  const wild = [];
+  // (FOREST_SPOTS masses removed — the terrain-following OAK_FIELD replaces them)
+  OAK_FIELD.forEach(([wx, wz]) => {
+    wild.push([wx, -wz, 0.45 + rng() * 0.85]);
+  });
+
+  // build instanced meshes
+  const crownG = lobedCrown(2.3, 77, 0.8);
+  const crownM = dataMaterial(0.78, { ...TREE_STROKE, toneGrad: 0.4, gradY0: -2.0, gradY1: 2.2, windAmp: 0.55 });
+  const crowns = new THREE.InstancedMesh(crownG, crownM, trees.length);
+  const dummy = new THREE.Object3D();
+  trees.forEach(([tx2, ty2, s2], i) => {
+    dummy.position.set(tx2, sampleH(tx2, ty2) + 2.0 * s2, -ty2);
+    dummy.rotation.set((rng() - 0.5) * 0.24, rng() * 6.28, (rng() - 0.5) * 0.24);
+    dummy.scale.setScalar(s2 * 2.0);
+    dummy.updateMatrix();
+    crowns.setMatrixAt(i, dummy.matrix);
+    bakeShadowEllipse(mctx, tx2, -ty2, 7.5 * s2, 0.14);
+  });
+  crowns.frustumCulled = false;
+  scene.add(crowns);
+
+  const liteG = lobedCrown(2.1, 313, 0.8, 0);
+  const wildMesh = new THREE.InstancedMesh(liteG, crownM, wild.length);
+  wild.forEach(([tx2, ty2, s2], i) => {
+    dummy.position.set(tx2, sampleH(tx2, ty2) + 1.9 * s2, -ty2);
+    dummy.rotation.set((rng() - 0.5) * 0.24, rng() * 6.28, (rng() - 0.5) * 0.24);
+    dummy.scale.setScalar(s2 * 2.0);
+    dummy.updateMatrix();
+    wildMesh.setMatrixAt(i, dummy.matrix);
+    if (i % 7 === 0) bakeShadowEllipse(mctx, tx2, -ty2, 6.5 * s2, 0.12);
+  });
+  wildMesh.frustumCulled = false;
+  scene.add(wildMesh);
+
+  const popG = (() => {
+    const crown = jitterGeometry(new THREE.IcosahedronGeometry(1.15, 1), 12, 0.2, 1);
+    crown.scale(1, 3.6, 1);
+    crown.translate(0, 4.6, 0);
+    crown.computeVertexNormals();
+    const nC = crown.attributes.position.count;
+    crown.setAttribute('aTone', new THREE.BufferAttribute(new Float32Array(nC).fill(0.78), 1));
+    crown.setAttribute('aSolid', new THREE.BufferAttribute(new Float32Array(nC), 1));
+    const trunk = new THREE.CylinderGeometry(0.14, 0.2, 1.4, 5).toNonIndexed().translate(0, 0.7, 0);
+    const nT = trunk.attributes.position.count;
+    trunk.setAttribute('aTone', new THREE.BufferAttribute(new Float32Array(nT).fill(0.3), 1));
+    trunk.setAttribute('aSolid', new THREE.BufferAttribute(new Float32Array(nT).fill(1), 1));
+    return mergeGeometries([crown, trunk]);
+  })();
+  const popM = dataMaterial(0, { ...TREE_STROKE, toneGrad: 0.35, gradY0: 0.5, gradY1: 7.5, windAmp: 0.3 });
+  const pops = new THREE.InstancedMesh(popG, popM, poplars.length);
+  poplars.forEach(([tx2, ty2, s2], i) => {
+    dummy.position.set(tx2, sampleH(tx2, ty2), -ty2);
+    dummy.rotation.set((rng() - 0.5) * 0.1, rng() * 6.28, (rng() - 0.5) * 0.1);
+    dummy.scale.setScalar(s2);
+    dummy.updateMatrix();
+    pops.setMatrixAt(i, dummy.matrix);
+    bakeShadowEllipse(mctx, tx2, -ty2, 4.5 * s2, 0.12, 2.0);
+  });
+  pops.frustumCulled = false;
+  scene.add(pops);
+  return { trees: trees.length + wild.length, poplars: poplars.length, crownM, popM };
+}
+
+/* ---------- smoke: a drawn wisp above every few hearths ---------- */
+
+const smokePlaceholder = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 2;
+  const x = c.getContext('2d');
+  x.fillStyle = '#fff';
+  x.fillRect(0, 0, 2, 2);
+  return new THREE.CanvasTexture(c);
+})();
+const smokeMat = new THREE.ShaderMaterial({
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `
+    varying vec2 vUv;
+    uniform float uTime;
+    uniform sampler2D tPlume;
+    void main() {
+      vec2 uv = vUv;
+      // the plume sways as one body, more at the top
+      uv.x += sin(uTime * 0.32 + uv.y * 2.6) * 0.055 * uv.y;
+      uv.x = (uv.x - 0.5) * (1.0 + 0.06 * sin(uTime * 0.21)) + 0.5;
+      float lum = texture2D(tPlume, uv).r;
+      float ink = smoothstep(0.9, 0.6, lum) * 0.78;
+      // a slow breath rolls up the column
+      float m = sin(uv.y * 9.0 - uTime * 0.5) * 0.5 + 0.5;
+      ink *= 0.68 + 0.32 * m;
+      ink *= smoothstep(0.0, 0.08, uv.x) * smoothstep(1.0, 0.92, uv.x);
+      ink *= smoothstep(1.0, 0.86, vUv.y) * smoothstep(0.0, 0.05, vUv.y);
+      gl_FragColor = vec4(0.0, ink, 0.0, 0.0);
+    }
+  `,
+  uniforms: { uTime: { value: 0 }, tPlume: { value: smokePlaceholder } },
+  side: THREE.DoubleSide,
+  blending: THREE.CustomBlending,
+  blendEquation: THREE.AddEquation,
+  blendSrc: THREE.OneFactor,
+  blendDst: THREE.OneFactor,
+  depthWrite: false,
+  transparent: true,
+  side: THREE.DoubleSide
+});
+new THREE.ImageLoader().load('assets/smoke-plume.png', img => {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 1024;
+  const x = c.getContext('2d');
+  x.drawImage(img, 55, 25, 610, 1130, 0, 0, 512, 1024);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  smokeMat.uniforms.tPlume.value = t;
+});
+function addSmoke() {
+  const rng = mulberry32(313);
+  feats.forEach((f, i) => {
+    if (i % 14 !== 3) return;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(13, 27), smokeMat);
+    m.position.set(f.x, sampleH(f.x, f.y) + 3 + 13.5, -f.y);
+    m.rotation.y = rng() * Math.PI;
+    const m2 = m.clone();
+    m2.rotation.y += Math.PI / 2;
+    scene.add(m, m2);
+  });
+}
+addSmoke();
+
+/* ---------- place labels: ink written on the map itself ---------- */
+
+function addLabels() {
+  S.places.forEach(p => {
+    const town = p.t === 'town';
+    const cw = 1024, ch = 256;
+    const c = document.createElement('canvas');
+    c.width = cw; c.height = ch;
+    const x = c.getContext('2d');
+    x.fillStyle = '#fff';
+    x.font = `${town ? 148 : 108}px Georgia, serif`;
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    const name = (p.n || '').toUpperCase().split('').join(' ');
+    x.fillText(name, cw / 2, ch / 2);
+    const tex = new THREE.CanvasTexture(c);
+    const wPl = town ? 460 : 210, hPl = wPl * ch / cw;
+    const px0 = p.x, pz0 = -p.y + (town ? -300 : -60);
+    const lgeo = new THREE.PlaneGeometry(wPl, hPl, 32, 6).rotateX(-Math.PI / 2);
+    {
+      const pos = lgeo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const wx2 = px0 + pos.getX(i), wz2 = pz0 + pos.getZ(i);
+        pos.setY(i, sampleH(wx2, -wz2) + 3.0);
+      }
+    }
+    const m = new THREE.Mesh(
+      lgeo,
+      new THREE.ShaderMaterial({
+        vertexShader: `varying vec2 vUv; varying vec3 vWp; void main(){ vUv = uv; vWp = (modelMatrix * vec4(position, 1.0)).xyz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: `
+          uniform sampler2D tText;
+          uniform float uStrength;
+          varying vec2 vUv;
+          varying vec3 vWp;
+          uniform float uRedA;
+          void main() {
+            // map text is for reading from above; it fades at grazing views
+            float grz = normalize(cameraPosition - vWp).y;
+            float ink = texture2D(tText, vUv).r * uStrength * smoothstep(0.14, 0.34, grz);
+            gl_FragColor = vec4(0.0, ink, 0.0, uRedA * smoothstep(0.0, 0.12, ink));
+          }
+        `,
+        uniforms: { tText: { value: tex }, uStrength: { value: town ? 0.78 : 0.55 }, uRedA: { value: town ? 0.88 : 0.0 } },
+        blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneFactor,
+        depthWrite: false,
+        transparent: true
+      })
+    );
+    m.position.set(px0, 0, pz0);
+    scene.add(m);
+  });
+}
+
+/* ---------- the Zab: a draped ink ribbon along the real course ---------- */
+
+function addRiver() {
+  function buildStrip(raw) {
+    // densify: the survey line is coarse; the ribbon must follow the land
+    const pts = [raw[0]];
+    for (let i = 1; i < raw.length; i++) {
+      const p = raw[i - 1], q = raw[i];
+      const L = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      const n = Math.max(1, Math.ceil(L / 60));
+      for (let k = 1; k <= n; k++) pts.push([p[0] + (q[0] - p[0]) * k / n, p[1] + (q[1] - p[1]) * k / n]);
+    }
+    const HW = 26, verts = [], uvs = [], idx = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p0 = pts[Math.max(0, i - 1)], p1 = pts[Math.min(pts.length - 1, i + 1)];
+      let dx = p1[0] - p0[0], dy = p1[1] - p0[1];
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len;
+      for (const side of [-1, 1]) {
+        const wx2 = pts[i][0] + nx * HW * side, wy2 = pts[i][1] + ny * HW * side;
+        verts.push(wx2, sampleH(wx2, wy2) + 5.0, -wy2);
+        uvs.push(i * 0.05, side * 0.5 + 0.5);
+      }
+      if (i > 0) {
+        const k = i * 2;
+        idx.push(k - 2, k - 1, k, k - 1, k + 1, k);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    g.setIndex(idx);
+    const m = new THREE.Mesh(g, new THREE.ShaderMaterial({
+      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `
+        varying vec2 vUv;
+        float rh(vec2 q) { return fract(sin(dot(q, vec2(127.1, 311.7))) * 43758.5453); }
+        void main() {
+          float bank = smoothstep(0.0, 0.18, vUv.y) * smoothstep(1.0, 0.82, vUv.y);
+          float lines = smoothstep(0.68, 0.88, sin(vUv.y * 21.0 + sin(vUv.x * 3.1) * 1.8) * 0.5 + 0.5);
+          float breaks = step(0.35, rh(floor(vec2(vUv.x * 6.0, vUv.y * 4.0))));
+          float ink = bank * (0.16 + lines * breaks * 0.58);
+          gl_FragColor = vec4(0.0, ink, 0.0, clamp(ink * 2.6, 0.0, 0.5));
+        }
+      `,
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneFactor,
+      depthWrite: false,
+      depthTest: false,
+      transparent: true,
+      side: THREE.DoubleSide
+    }));
+    scene.add(m);
+  }
+  // the survey line contains jumps; a ribbon must never bridge them
+  S.river.forEach(pts => {
+    let run = [];
+    const flush = () => { if (run.length > 2) buildStrip(run); run = []; };
+    for (const pt of pts) {
+      if (run.length && Math.hypot(pt[0] - run[run.length - 1][0], pt[1] - run[run.length - 1][1]) > 500) flush();
+      run.push(pt);
+    }
+    flush();
+  });
+}
+addRiver();
+
+/* ---------- assemble ---------- */
+
+placeHouses();
+const treeStats = placeTrees();
+
+// the settlement underwash: one soft pooled layer beneath each residential
+// hull, so the village finally sits ON something (Atelier B3)
+mctx.save();
+mctx.fillStyle = 'rgba(0,255,0,0.12)';
+[20, 10].forEach(b => {          // two passes: 20px pools the big Barzan hull, 10px fuses the small hamlet hulls
+  mctx.filter = `blur(${b}px)`;
+  S.residential.forEach(poly => {
+    mctx.beginPath();
+    poly.forEach((p, k) => k ? mctx.lineTo(sx(p), sy(p)) : mctx.moveTo(sx(p), sy(p)));
+    mctx.closePath();
+    mctx.fill();
+  });
+});
+mctx.restore();
+mctx.globalCompositeOperation = 'source-over';
+
+// capture relief BEFORE any road ink exists: erases emboss, road ink never does
+const marksNormalTex = normalFromMarks(marksCanvas);
+finishRoadInk();
+
+const marksTex = new THREE.CanvasTexture(marksCanvas);
+marksTex.flipY = false; // uv mapping is world-direct; canvas row 0 = north
+marksTex.wrapS = marksTex.wrapT = THREE.ClampToEdgeWrapping;
+marksTex.anisotropy = 4;
+
+const groundMat = new THREE.ShaderMaterial({
+  vertexShader: DATA_VERT,
+  fragmentShader: GROUND_FRAG,
+  uniforms: {
+    uDepthScale: { value: P.depthScale },
+    uMarks: { value: marksTex },
+    uMarksNormal: { value: marksNormalTex },
+    uNormalMult: { value: 0.7 },
+    uLightDir: { value: P.lightDir },
+    uCenter: { value: new THREE.Vector2(CX, CZ) },
+    uSpan: { value: SPAN },
+    uTime: { value: 0 },
+    uWindAmp: { value: 0 }
+  }
+});
+const ground = new THREE.Mesh(buildTerrain(), groundMat);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+addLabels();
+
+/* ---------- composite (proto, verbatim + distance-to-paper) ---------- */
+
+let rt = makeRT();
+function makeRT() {
+  return new THREE.WebGLRenderTarget(
+    innerWidth * renderer.getPixelRatio(),
+    innerHeight * renderer.getPixelRatio(),
+    { samples: LOWMEM ? 2 : 4, depthBuffer: true }
+  );
+}
+
+const COMP_FRAG = /* glsl */`
+  uniform sampler2D tDiffuse;
+  uniform sampler2D tPaper;
+  uniform vec2 resolution;
+  uniform float uLineWidth;
+  uniform float uTreshold;
+  uniform vec3 uPaperColor;
+  uniform vec3 uPencilColor;
+  uniform vec3 uRedInk;
+  uniform vec3 uBlueInk;
+  uniform float uVignetteStrength;
+  uniform float uVignetteOffset;
+  uniform float uNoiseStrength;
+  uniform float uPaperStrength;
+  uniform float uTime;
+  varying vec2 vUv;
+
+  float random2d(vec2 st) { return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123); }
+  float h2c(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float vnoiseC(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(h2c(i), h2c(i + vec2(1, 0)), u.x),
+               mix(h2c(i + vec2(0, 1)), h2c(i + vec2(1, 1)), u.x), u.y);
+  }
+  #define M_PI 3.1415926535897932384626433832795
+  float easeSin(float v) { return sin((v - 0.5) * M_PI) * 0.5 + 0.5; }
+
+  void main() {
+    vec2 uv = vUv;
+    vec2 px = vUv * resolution;
+    vec2 wob = vec2(vnoiseC(px / 61.0), vnoiseC(px / 53.0 + 7.7)) - 0.5;
+    wob += (vec2(vnoiseC(px / 13.0 + 31.1), vnoiseC(px / 11.0 + 17.3)) - 0.5) * 0.5;
+    uv += wob * 2.6 / resolution;
+    vec4 data = texture2D(tDiffuse, uv);
+
+    vec2 texel = vec2(1.0 / resolution.x, 1.0 / resolution.y);
+    texel *= vec2(uLineWidth * 0.5 + data.b * 1.0);
+
+    const mat3 Gx = mat3(-1, -2, -1, 0, 0, 0, 1, 2, 1);
+    const mat3 Gy = mat3(-1, 0, 1, -2, 0, 2, -1, 0, 1);
+
+    float rx0y0 = texture2D(tDiffuse, uv + texel * vec2(-1, -1)).r;
+    float rx0y1 = texture2D(tDiffuse, uv + texel * vec2(-1,  0)).r;
+    float rx0y2 = texture2D(tDiffuse, uv + texel * vec2(-1,  1)).r;
+    float rx1y0 = texture2D(tDiffuse, uv + texel * vec2( 0, -1)).r;
+    float rx1y1 = data.r;
+    float rx1y2 = texture2D(tDiffuse, uv + texel * vec2( 0,  1)).r;
+    float rx2y0 = texture2D(tDiffuse, uv + texel * vec2( 1, -1)).r;
+    float rx2y1 = texture2D(tDiffuse, uv + texel * vec2( 1,  0)).r;
+    float rx2y2 = texture2D(tDiffuse, uv + texel * vec2( 1,  1)).r;
+    float gxR = Gx[0][0]*rx0y0 + Gx[1][0]*rx1y0 + Gx[2][0]*rx2y0
+              + Gx[0][1]*rx0y1 + Gx[1][1]*rx1y1 + Gx[2][1]*rx2y1
+              + Gx[0][2]*rx0y2 + Gx[1][2]*rx1y2 + Gx[2][2]*rx2y2;
+    float gyR = Gy[0][0]*rx0y0 + Gy[1][0]*rx1y0 + Gy[2][0]*rx2y0
+              + Gy[0][1]*rx0y1 + Gy[1][1]*rx1y1 + Gy[2][1]*rx2y1
+              + Gy[0][2]*rx0y2 + Gy[1][2]*rx1y2 + Gy[2][2]*rx2y2;
+    float edgeR = sqrt(gxR * gxR + gyR * gyR);
+
+    float bx0y0 = texture2D(tDiffuse, uv + texel * vec2(-1, -1)).b;
+    float bx0y1 = texture2D(tDiffuse, uv + texel * vec2(-1,  0)).b;
+    float bx0y2 = texture2D(tDiffuse, uv + texel * vec2(-1,  1)).b;
+    float bx1y0 = texture2D(tDiffuse, uv + texel * vec2( 0, -1)).b;
+    float bx1y1 = data.b;
+    float bx1y2 = texture2D(tDiffuse, uv + texel * vec2( 0,  1)).b;
+    float bx2y0 = texture2D(tDiffuse, uv + texel * vec2( 1, -1)).b;
+    float bx2y1 = texture2D(tDiffuse, uv + texel * vec2( 1,  0)).b;
+    float bx2y2 = texture2D(tDiffuse, uv + texel * vec2( 1,  1)).b;
+    float gxB = Gx[0][0]*bx0y0 + Gx[1][0]*bx1y0 + Gx[2][0]*bx2y0
+              + Gx[0][1]*bx0y1 + Gx[1][1]*bx1y1 + Gx[2][1]*bx2y1
+              + Gx[0][2]*bx0y2 + Gx[1][2]*bx1y2 + Gx[2][2]*bx2y2;
+    float gyB = Gy[0][0]*bx0y0 + Gy[1][0]*bx1y0 + Gy[2][0]*bx2y0
+              + Gy[0][1]*bx0y1 + Gy[1][1]*bx1y1 + Gy[2][1]*bx2y1
+              + Gy[0][2]*bx0y2 + Gy[1][2]*bx1y2 + Gy[2][2]*bx2y2;
+    float edgeB = sqrt(gxB * gxB + gyB * gyB);
+
+    float outlineStrength = max(edgeR, edgeB * 0.9);
+    outlineStrength = outlineStrength * (1.0 + uTreshold) - uTreshold;
+    outlineStrength = clamp(outlineStrength, 0.0, 1.0);
+    outlineStrength = pow(outlineStrength, 1.4) * 0.85;
+
+    // the colour channel: above neutral = madder red, below = river blue
+    float redAmt = clamp((data.a - 0.5) * 2.0, 0.0, 1.0);
+    float blueAmt = clamp(data.a * 2.0, 0.0, 1.0) * (1.0 - step(0.5, data.a));
+    vec3 inkCol = mix(uPencilColor, uBlueInk, blueAmt);
+    inkCol = mix(inkCol, uRedInk, redAmt * 0.9);
+    float strokeStrength = data.g;
+    vec3 color = mix(uPaperColor, inkCol, strokeStrength);
+    color = mix(color, inkCol, outlineStrength);
+
+    // far ridges dissolve into the air of the page
+    color = mix(uPaperColor, color, smoothstep(0.04, 0.25, data.b));
+
+    color += (random2d(uv * 100.0 + mod(uTime, 100.0)) - 0.5) * uNoiseStrength;
+
+    float vig = distance(uv, vec2(0.5, 0.5));
+    vig = vig * uVignetteStrength + uVignetteOffset;
+    vig = easeSin(clamp(vig, 0.0, 1.0));
+    color = mix(color, uPaperColor, vig * 0.35);
+
+    vec2 paperUv = uv * resolution / 512.0;
+    float paperStrength = texture2D(tPaper, paperUv).r;
+    paperStrength = paperStrength * uPaperStrength + (1.0 - uPaperStrength);
+    color = mix(uPencilColor, color, paperStrength);
+
+    float mottle = vnoiseC(px / 280.0);
+    color *= 1.0 - (mottle - 0.5) * 0.05;
+    float fl = h2c(floor(px / 2.0));
+    float speck = smoothstep(0.9975, 1.0, fl) * 0.38;
+    color = mix(color, uPencilColor, speck);
+
+    gl_FragColor = vec4(color, 1.0);
+  }
+`;
+
+const compMat = new THREE.ShaderMaterial({
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+  fragmentShader: COMP_FRAG,
+  uniforms: {
+    tDiffuse: { value: rt.texture },
+    tPaper: { value: null },
+    resolution: { value: new THREE.Vector2(innerWidth * renderer.getPixelRatio(), innerHeight * renderer.getPixelRatio()) },
+    uLineWidth: { value: P.lineWidth },
+    uTreshold: { value: P.edgeTreshold },
+    uPaperColor: { value: new THREE.Vector3(...P.paper) },
+    uPencilColor: { value: new THREE.Vector3(...P.pencil) },
+    uRedInk: { value: new THREE.Vector3(0.647, 0.188, 0.122) },
+    uBlueInk: { value: new THREE.Vector3(0.196, 0.373, 0.494) },
+    uVignetteStrength: { value: P.vignetteStrength },
+    uVignetteOffset: { value: P.vignetteOffset },
+    uNoiseStrength: { value: P.noiseStrength },
+    uPaperStrength: { value: P.paperStrength },
+    uTime: { value: 0 }
+  },
+  depthTest: false,
+  depthWrite: false
+});
+const compScene = new THREE.Scene();
+compScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), compMat));
+const compCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+new THREE.ImageLoader().load('assets/paper.png', img => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const x = c.getContext('2d');
+  x.filter = 'blur(0.8px)';
+  x.drawImage(img, 0, 0, 256, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  compMat.uniforms.tPaper.value = t;
+});
+
+/* ---------- loop ---------- */
+
+renderer.setClearColor(new THREE.Color(0.5, 0.0, 0.0), 0.0);
+
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  controls.update();
+  const tNow = clock.getElapsedTime();
+  compMat.uniforms.uTime.value = tNow;
+  treeStats.crownM.uniforms.uTime.value = tNow;
+  treeStats.popM.uniforms.uTime.value = tNow;
+  smokeMat.uniforms.uTime.value = tNow;
+  renderer.setRenderTarget(rt);
+  renderer.render(scene, camera);
+  renderer.setRenderTarget(null);
+  renderer.render(compScene, compCam);
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  rt.dispose();
+  rt = makeRT();
+  compMat.uniforms.tDiffuse.value = rt.texture;
+  compMat.uniforms.resolution.value.set(innerWidth * renderer.getPixelRatio(), innerHeight * renderer.getPixelRatio());
+});
+
+console.log('barzan drawn:', S.buildings.length, 'houses,', treeStats.trees, 'trees,', treeStats.poplars, 'poplars');
+
+/* ---------- Atelier review frames: press 1–4 to snap the camera to the
+     critic's four reference framings, 0 to reset. Offsets are metres from
+     the town centre, matching Review 01/02 exactly, so a screenshot here
+     is directly comparable to its Chartogne frames. ---------- */
+const hint = document.createElement('div');
+hint.style.cssText = 'position:fixed;left:14px;bottom:12px;font:12px/1.5 Georgia,serif;color:#6b6654;opacity:.68;pointer-events:none;z-index:20;letter-spacing:.02em';
+hint.textContent = 'press 1–4 for Atelier review frames · 0 to reset';
+document.body.appendChild(hint);
+const VIEWS = {
+  '1': { name: 'B1 · village oblique',   p: [400, 500, 550],   t: [0, 0, 0] },
+  '2': { name: 'B2 · close street',      p: [90, 45, 110],     t: [0, 0, 0] },
+  '3': { name: 'B3 · high overview',     p: [1300, 2400, 1700], t: [-280, 0, -280] },
+  '4': { name: 'B4 · Zab vista (SW)',    p: [260, 300, -140],  t: [-620, 0, 900] },
+  '0': { name: 'default',                p: [520, 420, 680],   t: [0, 10, 0] }
+};
+function setView(v) {
+  camera.position.set(CX + v.p[0], hTown + v.p[1], CZ + v.p[2]);
+  controls.target.set(CX + v.t[0], hTown + v.t[1], CZ + v.t[2]);
+  controls.update();
+  hint.textContent = 'view: ' + v.name + '   ·   1–4 Atelier frames, 0 reset';
+}
+addEventListener('keydown', e => { const v = VIEWS[e.key]; if (v) setView(v); });
+
+window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundMat, scene, CX, CZ, hTown, setView, VIEWS };
+</script>
+</body>
+</html>
