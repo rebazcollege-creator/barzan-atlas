@@ -460,14 +460,13 @@ function buildMarks() {
     return false;
   };
   S.places.filter(pl => pl.t !== 'locality').forEach(pl => {
-    const n = pl.t === 'town' ? 10 : 4;
+    const n = pl.t === 'town' ? 55 : 24;
     let tries = 0, made = 0;
     while (made < n && tries++ < n * 8) {
-      const a = rng2() * 6.28, d = 170 + rng2() * 300;
+      const a = rng2() * 6.28, d = 140 + rng2() * 1500;
       const cx2 = pl.x + Math.cos(a) * d, cy2 = pl.y + Math.sin(a) * d;
       const csl = slopeAt(cx2, cy2);
-      if (csl > 0.14) continue;                       // fields keep to the flat valley floor
-      if (csl > 0.12 && !nearWater(cx2, cy2)) continue; // otherwise only hugging water
+      if (csl > 0.42) continue;                       // fabric covers valley + gentle slopes (Chartogne look)
       const w2 = 100 + rng2() * 170, h2 = 80 + rng2() * 130, rot = rng2() * 3.14;
       const rad = Math.max(w2, h2) * 0.5;
       let bad = false;
@@ -475,7 +474,7 @@ function buildMarks() {
         if ((bp[0][0] - cx2) ** 2 + (bp[0][1] - cy2) ** 2 < 130 * 130) { bad = true; break; }
       }
       if (!bad) for (const [ox, oy, orad] of placedFields) {
-        if ((ox - cx2) ** 2 + (oy - cy2) ** 2 < (rad + orad) ** 2 * 0.42) { bad = true; break; }
+        if ((ox - cx2) ** 2 + (oy - cy2) ** 2 < (rad + orad) ** 2 * 0.82) { bad = true; break; }
       }
       if (bad) continue;
       placedFields.push([cx2, cy2, rad]);
