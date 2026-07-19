@@ -97,7 +97,7 @@ const P = {
   vignetteStrength: 0.5,
   vignetteOffset: 0.16,
   paperStrength: 0.26,
-  depthScale: 0.0004       // ink dies with distance; the horizon melts to paper
+  depthScale: 0.00016      // gentle: bird-view stays legible, only the far horizon melts
 };
 
 const TREE_STROKE = {
@@ -459,35 +459,34 @@ function buildMarks() {
     for (const l of S.river) for (const p of l) if ((p[0]-wx)**2 + (p[1]-wy2)**2 < 250*250) return true;
     return false;
   };
-  S.places.filter(pl => pl.t !== 'locality').forEach(pl => {
-    const n = pl.t === 'town' ? 55 : 24;
-    let tries = 0, made = 0;
-    while (made < n && tries++ < n * 8) {
-      const a = rng2() * 6.28, d = 140 + rng2() * 1500;
-      const cx2 = pl.x + Math.cos(a) * d, cy2 = pl.y + Math.sin(a) * d;
-      const csl = slopeAt(cx2, cy2);
-      if (csl > 0.42) continue;                       // fabric covers valley + gentle slopes (Chartogne look)
-      const w2 = 100 + rng2() * 170, h2 = 80 + rng2() * 130, rot = rng2() * 3.14;
-      const rad = Math.max(w2, h2) * 0.5;
-      let bad = false;
-      for (const bp of S.buildings) {
-        if ((bp[0][0] - cx2) ** 2 + (bp[0][1] - cy2) ** 2 < 130 * 130) { bad = true; break; }
-      }
-      if (!bad) for (const [ox, oy, orad] of placedFields) {
-        if ((ox - cx2) ** 2 + (oy - cy2) ** 2 < (rad + orad) ** 2 * 0.82) { bad = true; break; }
-      }
-      if (bad) continue;
-      placedFields.push([cx2, cy2, rad]);
-      const ca = Math.cos(rot), sa = Math.sin(rot);
-      const poly = [[-w2/2,-h2/2],[w2/2,-h2/2],[w2/2,h2/2],[-w2/2,h2/2]]
-        .map(([qx, qy]) => [cx2 + qx*ca - qy*sa, cy2 + qx*sa + qy*ca]);
-      const sub = insetPoly(poly, 4);
-      parcel(sub, rot * 57.3 + (rng2() < 0.5 ? 90 : 0) + (rng2() - 0.5) * 24,
-             3.8 + rng2() * 1.8, 0.5 + rng2() * 1.2);
-      if (rng2() < 0.3) seamHedges.push(sub);
-      made++;
-    }
+  // CONTINUOUS GROUND FABRIC (Atelier Review 12): a jittered SHARED lattice tiles
+  // the ENTIRE ground edge-to-edge with fine ruled parcels — ink is the DEFAULT,
+  // bare paper survives only as the thin seam. Chartogne's core move; we had been
+  // quieting the ground to paper (backwards) instead of covering it.
+  const FAB = 170;
+  const JIT = FAB * 0.30;
+  const latV = (i, j) => {
+    const h = mulberry32((((i + 4096) * 73856093) ^ ((j + 4096) * 19349663)) >>> 0);
+    return [CX + i * FAB + (h() - 0.5) * 2 * JIT, -CZ + j * FAB + (h() - 0.5) * 2 * JIT];
+  };
+  const resHulls = S.residential.map(poly => {
+    const c = polyCentroid(poly); let r = 0;
+    poly.forEach(p => { r = Math.max(r, Math.hypot(p[0] - c[0], p[1] - c[1])); });
+    return [c[0], c[1], r + 200];
   });
+  const fabHalf = Math.ceil((SPAN / 2) / FAB) + 1;
+  for (let i = -fabHalf; i < fabHalf; i++) {
+    for (let j = -fabHalf; j < fabHalf; j++) {
+      const A = latV(i, j), B = latV(i + 1, j), Cc = latV(i + 1, j + 1), D = latV(i, j + 1);
+      const scx = (A[0] + B[0] + Cc[0] + D[0]) / 4, scy = (A[1] + B[1] + Cc[1] + D[1]) / 4;
+      if (slopeAt(scx, scy) > 0.52) continue;                 // cliffs -> shader hachure carries them
+      let inTown = false;
+      for (const [hx, hy, hr] of resHulls) { if ((hx - scx) ** 2 + (hy - scy) ** 2 < hr * hr) { inTown = true; break; } }
+      if (inTown) continue;                                   // the village floor stays paper
+      const fh = mulberry32((((i + 4096) * 2654435761) ^ ((j + 4096) * 40503)) >>> 0);
+      parcel(insetPoly([A, B, Cc, D], 3), fh() * 180, 8 + fh() * 5, 0.42 + fh() * 0.4);
+    }
+  }
 
   // hedgerow scribble: tree-lines along field seams and stream banks,
   // their signature companion of ways and boundaries (C1d)
@@ -946,20 +945,20 @@ function boxPart(w, h, d, x0, y0, z0, tone, solid = 0) {
 
 function houseArchetype(kind) {
   const parts = [
-    boxPart(9, 4.6, 7, 0, 2.3, 0, 0.85),
-    boxPart(9.4, 0.5, 7.4, 0, 4.85, 0, 0.88),
+    boxPart(9, 4.6, 7, 0, 2.3, 0, 0.60),
+    boxPart(9.4, 0.5, 7.4, 0, 4.85, 0, 0.62),
     boxPart(8.8, 0.12, 6.8, 0, 5.16, 0, 0.42),
     boxPart(1.5, 2.6, 0.15, 1.1, 1.3, 3.56, 0.16, 1),
     boxPart(1.1, 1.2, 0.15, -2.2, 2.9, 3.56, 0.22, 1),
     boxPart(1.1, 1.2, 0.15, 4.56, 2.9, 0.9, 0.22, 1).rotateY(Math.PI / 2)
   ];
   if (kind === 1) { // stair-head room on the roof
-    parts.push(boxPart(2.8, 2.0, 2.4, -2.4, 6.1, -1.5, 0.85));
-    parts.push(boxPart(3.1, 0.3, 2.7, -2.4, 7.2, -1.5, 0.88));
+    parts.push(boxPart(2.8, 2.0, 2.4, -2.4, 6.1, -1.5, 0.60));
+    parts.push(boxPart(3.1, 0.3, 2.7, -2.4, 7.2, -1.5, 0.62));
   }
   if (kind === 2) { // long house
-    parts.push(boxPart(4.5, 3.4, 6.4, 6.4, 1.7, 0, 0.85));
-    parts.push(boxPart(4.8, 0.4, 6.7, 6.4, 3.6, 0, 0.88));
+    parts.push(boxPart(4.5, 3.4, 6.4, 6.4, 1.7, 0, 0.60));
+    parts.push(boxPart(4.8, 0.4, 6.7, 6.4, 3.6, 0, 0.62));
     parts.push(boxPart(4.3, 0.1, 6.2, 6.4, 3.85, 0, 0.42));
   }
   return mergeGeometries(parts);
@@ -1106,7 +1105,7 @@ function placeTrees() {
 
   // village trees: every house among crowns
   feats.forEach(f => {
-    const nY = 2 + (rng() < 0.5 ? 1 : 0); // canopy 1.5-2x: crowns outnumber roofs
+    const nY = 3 + (rng() < 0.5 ? 1 : 0); // denser canopy woven between roofs
     for (let k = 0; k < nY; k++) {
       const a = rng() * Math.PI * 2, d = 9 + rng() * 11;
       const tx3 = f.x + Math.cos(a) * d, ty3 = f.y + Math.sin(a) * d;
@@ -1581,7 +1580,7 @@ const COMP_FRAG = /* glsl */`
     color = mix(color, inkCol, outlineStrength);
 
     // far ridges dissolve into the air of the page
-    color = mix(uPaperColor, color, smoothstep(0.15, 0.55, data.b));
+    color = mix(uPaperColor, color, smoothstep(0.05, 0.42, data.b));
 
     color += (random2d(uv * 100.0 + mod(uTime, 100.0)) - 0.5) * uNoiseStrength;
 
