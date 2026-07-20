@@ -147,7 +147,7 @@ camera.position.set(CX + 300, hTown + 260, CZ + 400);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(CX, hTown + 10, CZ);
 controls.enableDamping = true;
-controls.maxPolarAngle = Math.PI * 0.48;
+controls.maxPolarAngle = Math.PI * 0.462;   // 83 deg: low obliques stay, edge-on does not
 controls.minDistance = 60;
 controls.maxDistance = 1800;
 
@@ -2329,7 +2329,8 @@ function addRiver() {
       blendSrc: THREE.OneFactor,
       blendDst: THREE.OneFactor,
       depthWrite: false,
-      depthTest: false,
+      depthTest: true,      // was false: the strip ignored depth entirely, so the Zab
+                            // showed straight through any hill standing in front of it
       transparent: true,
       side: THREE.DoubleSide
     }));
@@ -3024,8 +3025,28 @@ function updateFrame() {
   if (best) best.classList.add('active');
 }
 
+// The plate has an underside, and at a near-horizontal angle from a corner the camera
+// could slip below the terrain and look up through it. Clamp after controls.update()
+// so the orbit still feels free everywhere it is legal.
+const HFLOOR = 14;
+function keepAboveGround() {
+  const t = controls.target;
+  const half = SPAN * 0.62;
+  t.x = Math.max(CX - half, Math.min(CX + half, t.x));
+  t.z = Math.max(CZ - half, Math.min(CZ + half, t.z));
+  const tg = sampleH(t.x, -t.z);
+  if (t.y < tg + 2) t.y = tg + 2;
+  const c = camera.position;
+  const g = sampleH(c.x, -c.z) + HFLOOR;
+  if (c.y < g) {
+    // lift straight up rather than pushing outward, so the framing barely shifts
+    c.y = g;
+  }
+}
+
 renderer.setAnimationLoop(() => {
   controls.update();
+  keepAboveGround();
   updateFrame();
   const tNow = clock.getElapsedTime();
   compMat.uniforms.uTime.value = tNow;
