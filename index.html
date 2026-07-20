@@ -114,7 +114,7 @@ const P = {
   inkCeiling: 0.80,    // the darkest mark on the sheet — never solid ink
   ashInk:    0.46,
   birdInk:   0.85,   // the gulls: two strokes, a shade firmer than the ash   // weight of a single ash flake's ink
-  cloudInk:  0.20,   // weight of the drawn cloud line work in the sky
+  cloudInk:  0.46,   // weight of the drawn cloud line work in the sky
   fogRoll:   0.36,   // how far the drifting edge wanders from a plain circle
   fogStart:  0.13,   // only a small lens at the centre stays completely clear
   fogDepth:  0.84,   // dense: the corners go almost to bare paper
@@ -3123,11 +3123,12 @@ const COMP_FRAG = /* glsl */`
     // the sky is bare paper; the drawing sits on it
     color = mix(uPaperColor, color, smoothstep(0.01, 0.22, data.b));
 
-    // ---- CLOUD: FINE HORIZONTAL HATCHING --------------------------------------
-    // The way an engraved sky is actually drawn, and what the reference shows: close
-    // parallel lines running level, gathered into soft cloud forms and fading out at
-    // their edges. Not stipple, not outlines. The lines are ruled on ELEVATION so they
-    // stay level in the sky however the camera is turned.
+    // ---- CLOUD: DRAWN BANKS, HATCHED ALONG THE FORM ---------------------------
+    // An engraved sky is a few gathered banks of stroke on a mostly bare sheet, and
+    // every stroke follows the roll of the cloud it is describing. Two things had to
+    // be true for it to stop reading as ruled paper: the strokes must CURVE with the
+    // form, and they must END. Both are handled below. The whole field is anchored to
+    // a plane in world space, so it stays put in the sky as the camera turns.
     float isSky = 1.0 - smoothstep(0.01, 0.22, data.b);
     if (isSky > 0.003 && uCloudInk > 0.0) {
       float aspect2 = resolution.x / resolution.y;
@@ -3136,13 +3137,35 @@ const COMP_FRAG = /* glsl */`
                         + uCamUp    * ((uv.y - 0.5) * 2.0 * uTanHalf));
       if (rd.y > 0.012) {
         vec2 cuv = rd.xz / (rd.y + 0.34);
-        float m1 = vnoiseC(cuv * 0.80 + 4.2) * 0.58 + vnoiseC(cuv * 2.05 + 13.1) * 0.42;
-        float mass = smoothstep(0.44, 0.68, m1);
-        // the ruling: level lines, with a slow waver so they are not mechanical
-        float hy = rd.y * 165.0 + vnoiseC(cuv * 1.3 + 8.8) * 2.6;
-        float line = 1.0 - smoothstep(0.0, 0.40, abs(fract(hy) - 0.5) * 2.0);
-        float ink2 = mass * line;
-        ink2 *= smoothstep(0.012, 0.055, rd.y) * smoothstep(1.05, 0.55, rd.y);
+        // THE FORMS. Stretched wide and flattened in depth, because cloud banks are
+        // long and low, never round. Domain-warped first so the silhouette has lobes
+        // and inlets instead of the soft oval a plain noise threshold always gives.
+        // The threshold is high on purpose: most of the sheet must stay bare paper.
+        vec2 q = vec2(cuv.x * 1.50, cuv.y * 2.20);
+        vec2 wq = vec2(vnoiseC(q * 1.9 + 2.1), vnoiseC(q * 1.9 + 9.4)) - 0.5;
+        vec2 mq = q + wq * 0.55;
+        float m1 = vnoiseC(mq + 4.2) * 0.62 + vnoiseC(mq * 2.4 + 13.1) * 0.38;
+        float mass = smoothstep(0.54, 0.72, m1);
+        // THE RULING. Ruling on elevation alone is what made this read as a ruled
+        // notebook: every stroke ran dead level, full width, edge to edge. An engraver
+        // does the opposite — the burin follows the roll of the form, so the strokes
+        // are iso-lines of a WARPED field, and they bend, gather and splay with the
+        // cloud. Amplitude is in whole line-spacings: seven of them on the slow octave
+        // is enough to bow a stroke right across its neighbours.
+        float roll = (vnoiseC(cuv * 0.9 + 17.3) - 0.5) * 7.0
+                   + (vnoiseC(cuv * 2.7 + 31.9) - 0.5) * 2.2;
+        float sy = rd.y * 150.0 + roll;
+        float fy = floor(sy);
+        // no two strokes in a drawn sky carry the same charge, and none of them runs
+        // the whole way: the hand lifts, the line breaks and tapers back to paper.
+        float lw  = 0.42 + 0.58 * vnoiseC(vec2(fy * 0.37, 11.7));
+        float brk = smoothstep(0.32, 0.60, vnoiseC(vec2(cuv.x * 3.6 + cuv.y * 0.6, fy * 0.61 + 3.3)));
+        // thin strokes with paper between them, thinning further toward the edge of
+        // the form so the cloud dissolves rather than ending on a boundary
+        float wdt = 0.16 + 0.30 * mass;
+        float line = 1.0 - smoothstep(0.0, wdt, abs(fract(sy) - 0.5) * 2.0);
+        float ink2 = mass * line * lw * brk;
+        ink2 *= smoothstep(0.012, 0.055, rd.y) * (1.0 - smoothstep(0.42, 0.90, rd.y));
         color = mix(color, uPencilColor, clamp(ink2, 0.0, 1.0) * uCloudInk * isSky);
       }
     }
