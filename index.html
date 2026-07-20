@@ -111,7 +111,7 @@ const P = {
   sunGlow:  [1.000, 0.949, 0.796],   // #fff2cb the bloom
   sunDisc:  [1.000, 0.980, 0.886],   // the disc itself
   sunSize:  0.030,         // the disc's angular radius in radians — 1.7 deg
-  sunReach: 1.85,          // how far the warmth carries before the fog takes it back
+  sunReach: 4.20,          // tight: the warmth dies within about 20 degrees of the sun
   rayGain:  0.22,          // the engraver's sunburst: fine lines radiating from the sun
   sunTint:  [1.075, 0.995, 0.870],   // what the low sun does to a lit face
   shadeTint:[0.930, 0.955, 1.020],   // and what the sky alone does to a shaded one
@@ -2218,7 +2218,7 @@ const smokeMat = new THREE.ShaderMaterial({
       // Depth must follow the SMOKE, not the quad: writing it across the whole plane
       // gave the Sobel pass a rectangular step to outline — those were the corners.
       float depth = (1.0 - clamp(vDepth * uDepthScale, 0.0, 1.0)) * min(1.0, ink * 7.0);
-      gl_FragColor = vec4(0.0, ink, depth, 0.0);
+      gl_FragColor = vec4(0.0, ink, 0.0, 0.0);   // no depth: a plume is not ground
     }
   `,
   uniforms: { uTime: { value: 0 }, uSeed: { value: 0 }, uSpeed: { value: 0.16 }, uDepthScale: { value: P.depthScale } },
@@ -2934,7 +2934,7 @@ const COMP_FRAG = /* glsl */`
     // than the paper tooth, and that unevenness is most of what says 'painted by hand'.
     float pool = 0.80 + 0.38 * vnoiseC(px / 240.0 + 41.3) - 0.09 * vnoiseC(px / 71.0);
     vec3 sheet = mix(uPaperColor, pig.rgb, clamp(pig.a * uWash * bite * pool, 0.0, 1.0));
-    vec3 color = mix(sheet, inkCol, cover);
+    vec3 color = sheet;   // ink is laid on later, once we know what is behind it
 
     // far ridges dissolve into the air of the page
     // ---- THE SKY -------------------------------------------------------------
@@ -2959,7 +2959,7 @@ const COMP_FRAG = /* glsl */`
       // LOCAL event burning a hole in it — a whole orange sky belongs to a photograph,
       // not to this map. So: build the fog first, build the dawn separately, and let
       // the dawn reach only as far as uSunReach before the haze takes it back.
-      vec3 fog = mix(uPaperColor, uSkyHigh, smoothstep(-0.02, 0.42, el) * 0.42);
+      vec3 fog = mix(uPaperColor, uSkyHigh, smoothstep(-0.02, 0.52, el) * 0.30);
 
       vec3 warm = mix(uSkyEmber, uSkyLow, smoothstep(0.000, 0.030, el));
       warm = mix(warm, uSkySRose, smoothstep(0.020, 0.085, el));
@@ -2976,28 +2976,21 @@ const COMP_FRAG = /* glsl */`
       warm = mix(warm, mix(uCloudDim, uCloudLit, smoothstep(0.09, 0.005, el)), band * 0.60);
 
       // how much dawn survives here: close to the sun, and low in the sky
+      // the warm band hugs the horizon and the sun, and nowhere else
       float reach = exp(-ang * uSunReach);
-      float low   = smoothstep(0.34, -0.02, el);
-      sky = mix(fog, warm, clamp(reach * 0.85 + low * reach * 0.75, 0.0, 1.0));
+      float low   = smoothstep(0.115, -0.02, el);
+      sky = mix(fog, warm, clamp(reach * low * 1.15, 0.0, 1.0) * 0.88);
 
-      float glowA = exp(-ang * 7.0) * 0.85;
-      sky = mix(sky, uSunGlow, glowA);
-      // a hard-edged disc with a hot core, reddened toward its rim the way a low sun is
-      float disc = smoothstep(uSunSize, uSunSize * 0.82, ang);
-      vec3 core = mix(uSkyEmber, uSunDisc, smoothstep(uSunSize, uSunSize * 0.35, ang));
-      sky = mix(sky, core, disc);
-
-      // the sunburst, drawn about the sun's screen position
-      vec2 ar = vec2(aspect, 1.0);
-      vec2 dsun = (uv - uSunScreen) * ar;
-      float sd = length(dsun), a = atan(dsun.y, dsun.x);
-      float rays = (pow(sin(a * 23.0) * 0.5 + 0.5, 4.0) * 0.62
-                  + pow(sin(a * 9.0 + 1.7) * 0.5 + 0.5, 3.0) * 0.38)
-                  * exp(-sd * 1.45) * uRayGain * uSunVis;
-      sky += (uSunGlow - vec3(0.5)) * rays;
+      // No disc and no rays. Both read as a graphic pasted on the plate rather than
+      // as light in it. What is left is the thing that was working: a warm brightening
+      // low in the sky where the sun is coming up, dying quickly into the haze.
+      sky = mix(sky, uSunGlow, exp(-ang * 5.0) * 0.42);
       sky = mix(uPaperColor, sky, uDawn);
     }
+    // background first — sky or ground — and only THEN the ink over it. Smoke drawn
+    // against the dawn now sits on the dawn instead of on a white patch.
     color = mix(sky, color, smoothstep(0.01, 0.22, data.b));
+    color = mix(color, inkCol, cover);
 
     // ---- THE POOL OF LIGHT ---------------------------------------------------
     // The village stands in the sun; the land around it stays in the blue of the hour.
@@ -3009,14 +3002,7 @@ const COMP_FRAG = /* glsl */`
       // ONLY on the land. Letting it touch the sky turned the pool into a soft blob
       // hanging in the air instead of light lying on the ground.
       float onLand = smoothstep(0.01, 0.22, data.b);
-      // the shafts do not stop at the horizon: the same rays fall across the valley
-      vec2 arL = vec2(resolution.x / resolution.y, 1.0);
-      vec2 dL = (uv - uSunScreen) * arL;
-      float aL = atan(dL.y, dL.x), sdL = length(dL);
-      float shaft = (pow(sin(aL * 23.0) * 0.5 + 0.5, 4.0) * 0.62
-                   + pow(sin(aL * 9.0 + 1.7) * 0.5 + 0.5, 3.0) * 0.38)
-                   * exp(-sdL * 0.95) * uRayLand * uSunVis * onLand * uDawn;
-      color += (uSunGlow - vec3(0.55)) * shaft;
+
       color *= mix(vec3(1.0), mix(vec3(0.949, 0.963, 1.012),
                                   vec3(1.0) + (uSunGlow - vec3(0.86)) * uPoolWarm, pool),
                    uDawn * onLand);
