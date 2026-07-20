@@ -7,33 +7,17 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #f8f6ef; }
   canvas { display: block; }
-  #tag {
-    position: fixed; top: 18px; left: 22px; z-index: 5;
-    font-family: Georgia, 'Times New Roman', serif;
-    font-size: 13px; letter-spacing: 0.28em; color: #4d4639;
-  }
-  #tag b { display: block; font-size: 17px; margin-bottom: 5px; font-weight: normal; color: #a5301f; }
-  #cred {
-    position: fixed; bottom: 14px; left: 22px; z-index: 5;
-    font-family: Georgia, serif; font-style: italic;
-    font-size: 10px; letter-spacing: 0.06em; color: rgba(77,70,57,0.55);
-  }
   #frame{position:fixed;inset:0;pointer-events:none;z-index:4}
   #frame .pm{position:absolute;border:1px solid rgba(77,70,57,0.5)}
   #frame .tick{position:absolute;width:9px;height:9px;border:1px solid rgba(77,70,57,0.6)}
-  #menu{position:fixed;top:72px;left:23px;z-index:6;font-family:Georgia,serif;font-size:12px;letter-spacing:.4em;color:#4d4639;line-height:1.7}
   #mapbtn{position:fixed;top:22px;right:34px;z-index:6;font-family:Georgia,serif;font-size:15px;letter-spacing:.42em;color:#4d4639}
   #compass{position:fixed;top:52px;right:30px;z-index:6;width:46px;height:46px}
   #scalebar{position:fixed;bottom:48px;left:34px;z-index:6;font-family:Georgia,serif;font-size:9.5px;letter-spacing:.14em;color:#4d4639}
   #scalebar .lbl{margin-bottom:3px}
   #scalebar .bar{height:5px;border:1px solid #4d4639;border-top:none;width:120px}
-  #index{position:fixed;bottom:14px;left:0;right:0;z-index:6;display:flex;justify-content:center;gap:20px;flex-wrap:wrap;padding:0 60px;font-family:Georgia,serif;font-size:10.5px;letter-spacing:.09em;color:rgba(77,70,57,0.6)}
-  #index .pl.active{color:#a5301f}
 </style>
 </head>
 <body>
-<div id="tag"><b>T H E&nbsp;&nbsp;B A R Z A N&nbsp;&nbsp;A T L A S</b>DRAWN FROM SURVEY DATA</div>
-<div id="cred">Map data &copy; OpenStreetMap contributors &middot; Terrain: NASA SRTM</div>
 <script type="importmap">
   { "imports": { "three": "./vendor/three.module.js" } }
 </script>
@@ -3278,7 +3262,6 @@ const clock = new THREE.Clock();
     '<div class="tick" style="top:12px;left:12px"></div><div class="tick" style="top:12px;right:12px"></div>' +
     '<div class="tick" style="bottom:12px;left:12px"></div><div class="tick" style="bottom:12px;right:12px"></div>';
   document.body.appendChild(frame);
-  const menu = document.createElement('div'); menu.id = 'menu'; menu.innerHTML = 'M E<br>N U'; document.body.appendChild(menu);
   const mapb = document.createElement('div'); mapb.id = 'mapbtn'; mapb.textContent = 'M A P'; document.body.appendChild(mapb);
   const NS = 'http://www.w3.org/2000/svg';
   const comp = document.createElementNS(NS, 'svg'); comp.id = 'compass'; comp.setAttribute('viewBox', '0 0 46 46');
@@ -3289,13 +3272,9 @@ const clock = new THREE.Clock();
   document.body.appendChild(comp);
   const sb = document.createElement('div'); sb.id = 'scalebar';
   sb.innerHTML = '<div class="lbl"></div><div class="bar"></div>'; document.body.appendChild(sb);
-  const idx = document.createElement('div'); idx.id = 'index';
-  S.places.filter(p => p.n).forEach(p => {
-    const e = document.createElement('span'); e.className = 'pl';
-    e.dataset.x = p.x; e.dataset.y = p.y; e.textContent = p.n.toUpperCase(); idx.appendChild(e);
-  });
-  document.body.appendChild(idx);
-  window.__frame = { needle: comp.querySelector('#nd'), lbl: sb.querySelector('.lbl'), bar: sb.querySelector('.bar'), pls: [...idx.querySelectorAll('.pl')] };
+  // The place index is gone from the sheet; updateFrame's nearest-place highlight
+  // iterates an empty list and quietly does nothing.
+  window.__frame = { needle: comp.querySelector('#nd'), lbl: sb.querySelector('.lbl'), bar: sb.querySelector('.bar'), pls: [] };
 })();
 function updateFrame() {
   const F = window.__frame; if (!F) return;
