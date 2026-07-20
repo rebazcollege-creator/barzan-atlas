@@ -110,6 +110,7 @@ const P = {
   skyHigh:  [0.729, 0.784, 0.827],   // #bac8d3  cool blue-grey overhead
   sunGlow:  [1.000, 0.949, 0.796],   // #fff2cb the bloom
   sunDisc:  [1.000, 0.980, 0.886],   // the disc itself
+  sunSize:  0.030,         // the disc's angular radius in radians — 1.7 deg
   rayGain:  0.16,          // the engraver's sunburst: fine lines radiating from the sun
   sunTint:  [1.075, 0.995, 0.870],   // what the low sun does to a lit face
   shadeTint:[0.930, 0.955, 1.020],   // and what the sky alone does to a shaded one
@@ -2817,6 +2818,8 @@ const COMP_FRAG = /* glsl */`
   uniform vec3 uCloudLit; uniform vec3 uCloudDim; uniform float uRayLand;
   uniform vec3 uSunGlow; uniform vec3 uSunDisc;
   uniform float uRayGain; uniform float uSunVis;
+  uniform vec3 uCamFwd; uniform vec3 uCamRight; uniform vec3 uCamUp;
+  uniform vec3 uSunDir; uniform float uTanHalf; uniform float uSunSize;
   uniform vec2 uSunScreen;     // where the sun sits on screen
   uniform vec2 uTownScreen;    // and where Barzan does
   uniform float uPoolWarm; uniform float uPoolSize; uniform float uDawn;
@@ -2939,30 +2942,45 @@ const COMP_FRAG = /* glsl */`
     // wash on paper — the grain and the frame run straight over it.
     vec3 sky = uPaperColor;
     if (uDawn > 0.001) {
-      float h = clamp(uv.y, 0.0, 1.0);
-      sky = mix(uSkyEmber, uSkyLow, smoothstep(0.00, 0.16, h));   // ember at the ridge
-      sky = mix(sky, uSkySRose, smoothstep(0.12, 0.34, h));
-      sky = mix(sky, uSkyMid,   smoothstep(0.30, 0.62, h));
-      sky = mix(sky, uSkyHigh,  smoothstep(0.56, 1.0, h));
-      // streak cloud: noise stretched hard along the horizon, lit underneath by the
-      // low sun and dim on top, which is the whole reason a dawn sky has structure
+      // THE SKY IS BANDED BY ALTITUDE, NOT BY SCREEN POSITION. Keying the gradient to
+      // uv.y put the gold in the bottom 16% of the FRAME — which is land — so only the
+      // pale top of the gradient was ever visible and the dawn read as fog. Rebuild the
+      // view ray per pixel and band the sky by its angle above the true horizon.
+      float aspect = resolution.x / resolution.y;
+      vec3 rd = normalize(uCamFwd
+                        + uCamRight * ((uv.x - 0.5) * 2.0 * aspect * uTanHalf)
+                        + uCamUp    * ((uv.y - 0.5) * 2.0 * uTanHalf));
+      float el = clamp(rd.y, -1.0, 1.0);                 // 0 at the horizon
+      sky = mix(uSkyEmber, uSkyLow, smoothstep(0.000, 0.030, el));
+      sky = mix(sky, uSkySRose, smoothstep(0.020, 0.085, el));
+      sky = mix(sky, uSkyMid,   smoothstep(0.070, 0.210, el));
+      sky = mix(sky, uSkyHigh,  smoothstep(0.190, 0.520, el));
+      // streak cloud, also banded by altitude so it lies along the horizon
       float cl = vnoiseC(vec2(px.x / 340.0, px.y / 34.0)) * 0.62
                + vnoiseC(vec2(px.x / 121.0, px.y / 17.0) + 7.3) * 0.38;
-      float band = smoothstep(0.46, 0.78, cl) * smoothstep(0.94, 0.30, h);
-      sky = mix(sky, mix(uCloudDim, uCloudLit, smoothstep(0.30, 0.02, h)), band * 0.55);
-      vec2 ar = vec2(resolution.x / resolution.y, 1.0);
+      float band = smoothstep(0.46, 0.78, cl) * smoothstep(0.55, 0.03, el);
+      sky = mix(sky, mix(uCloudDim, uCloudLit, smoothstep(0.09, 0.005, el)), band * 0.60);
+
+      // THE SUN, as an angle rather than a screen point. cos of the angle between the
+      // view ray and the sun gives a true circular disc at any camera orientation, it
+      // is never mirrored when the sun is behind you, and the disc keeps its size.
+      float cosang = dot(rd, uSunDir);
+      float ang = acos(clamp(cosang, -1.0, 1.0));        // radians from the sun
+      float glowA = exp(-ang * 7.0) * 0.85;
+      sky = mix(sky, uSunGlow, glowA);
+      // a hard-edged disc with a hot core, reddened toward its rim the way a low sun is
+      float disc = smoothstep(uSunSize, uSunSize * 0.82, ang);
+      vec3 core = mix(uSkyEmber, uSunDisc, smoothstep(uSunSize, uSunSize * 0.35, ang));
+      sky = mix(sky, core, disc);
+
+      // the sunburst, drawn about the sun's screen position
+      vec2 ar = vec2(aspect, 1.0);
       vec2 dsun = (uv - uSunScreen) * ar;
-      float sd = length(dsun);
-      // THE SUNBURST. An engraver draws light as fine lines radiating from the source,
-      // and that is what makes this read as sunrise rather than as weather. Two sets at
-      // different counts so the spacing never looks machined.
-      float a = atan(dsun.y, dsun.x);
-      float r1 = pow(sin(a * 23.0) * 0.5 + 0.5, 4.0);
-      float r2 = pow(sin(a * 9.0 + 1.7) * 0.5 + 0.5, 3.0);
-      float rays = (r1 * 0.62 + r2 * 0.38) * exp(-sd * 1.45) * uRayGain * uSunVis;
+      float sd = length(dsun), a = atan(dsun.y, dsun.x);
+      float rays = (pow(sin(a * 23.0) * 0.5 + 0.5, 4.0) * 0.62
+                  + pow(sin(a * 9.0 + 1.7) * 0.5 + 0.5, 3.0) * 0.38)
+                  * exp(-sd * 1.45) * uRayGain * uSunVis;
       sky += (uSunGlow - vec3(0.5)) * rays;
-      sky = mix(sky, uSunGlow, exp(-sd * 4.4) * 0.80 * uSunVis);      // the bloom
-      sky = mix(sky, uSunDisc, smoothstep(0.045, 0.026, sd) * uSunVis); // the disc
       sky = mix(uPaperColor, sky, uDawn);
     }
     color = mix(sky, color, smoothstep(0.01, 0.22, data.b));
@@ -2995,7 +3013,7 @@ const COMP_FRAG = /* glsl */`
     float vig = distance(uv, vec2(0.5, 0.5));
     vig = vig * uVignetteStrength + uVignetteOffset;
     vig = easeSin(clamp(vig, 0.0, 1.0));
-    color = mix(color, uPaperColor, vig * 0.35);
+    color = mix(color, uPaperColor, vig * 0.35 * mix(0.22, 1.0, smoothstep(0.01, 0.22, data.b)));
 
     vec2 paperUv = uv * resolution / 512.0;
     float paperStrength = texture2D(tPaper, paperUv).r;
@@ -3054,6 +3072,12 @@ const compMat = new THREE.ShaderMaterial({
     uSunDisc: { value: new THREE.Vector3(...P.sunDisc) },
     uRayGain: { value: P.rayGain },
     uSunVis:  { value: 1 },
+    uCamFwd:   { value: new THREE.Vector3(0, 0, -1) },
+    uCamRight: { value: new THREE.Vector3(1, 0, 0) },
+    uCamUp:    { value: new THREE.Vector3(0, 1, 0) },
+    uSunDir:   { value: P.lightDir.clone() },
+    uTanHalf:  { value: Math.tan(camera.fov * Math.PI / 360) },
+    uSunSize:  { value: P.sunSize },
     uSkyMid:  { value: new THREE.Vector3(...P.skyMid) },
     uSkyHigh: { value: new THREE.Vector3(...P.skyHigh) },
     uSunGlow: { value: new THREE.Vector3(...P.sunGlow) },
@@ -3152,7 +3176,8 @@ function keepAboveGround() {
   }
 }
 
-const _sunV = new THREE.Vector3(), _townV = new THREE.Vector3(), _fwd = new THREE.Vector3();
+const _sunV = new THREE.Vector3(), _townV = new THREE.Vector3(),
+      _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
 renderer.setAnimationLoop(() => {
   controls.update();
   keepAboveGround();
@@ -3166,6 +3191,11 @@ renderer.setAnimationLoop(() => {
   // where is the sun, and where is Barzan, on screen this frame?
   _sunV.copy(P.lightDir).multiplyScalar(9000).add(controls.target);
   camera.getWorldDirection(_fwd);
+  compMat.uniforms.uCamFwd.value.copy(_fwd);
+  _right.crossVectors(_fwd, camera.up).normalize();
+  compMat.uniforms.uCamRight.value.copy(_right);
+  compMat.uniforms.uCamUp.value.crossVectors(_right, _fwd).normalize();
+  compMat.uniforms.uTanHalf.value = Math.tan(camera.fov * Math.PI / 360);
   const ahead = _sunV.clone().sub(camera.position).normalize().dot(_fwd);
   _sunV.project(camera);
   compMat.uniforms.uSunScreen.value.set(_sunV.x * 0.5 + 0.5, _sunV.y * 0.5 + 0.5);
