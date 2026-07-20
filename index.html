@@ -112,6 +112,8 @@ const P = {
   inkDepth: 0.58,       // the wash, at ink depth
   wash: 1.00,           // master strength of the colour; per-class restraint lives in PIG
   inkCeiling: 0.80,    // the darkest mark on the sheet — never solid ink
+  dust:      0.055,  // weight of the drifting lens dust — deliberately near-subliminal
+  dustScale: 78.0,   // grid density: roughly 4,000 motes on a wide frame
   cloudInk:  0.40,   // weight of the drawn cloud line work in the sky
   fogRoll:   0.36,   // how far the drifting edge wanders from a plain circle
   fogStart:  0.13,   // only a small lens at the centre stays completely clear
@@ -152,6 +154,11 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(CX, hTown + 10, CZ);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * 0.462;   // 83 deg: low obliques stay, edge-on does not
+// A slow cinematic drift about the village. The orbit target is already Barzan, so this
+// just keeps the plate turning; one revolution takes about three minutes, slow enough
+// to read as the map breathing rather than as a carousel.
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.34;
 controls.minDistance = 60;
 controls.maxDistance = 1800;
 
@@ -2275,7 +2282,7 @@ function addLabels() {
             gl_FragColor = vec4(0.0, ink, 0.0, uRedA * smoothstep(0.0, 0.12, ink));
           }
         `,
-        uniforms: { tText: { value: tex }, uStrength: { value: town ? 0.78 : 0.55 }, uRedA: { value: town ? 0.30 : 0.0 } },
+        uniforms: { tText: { value: tex }, uStrength: { value: 0.80 }, uRedA: { value: 0.92 } },   // the masthead's madder
         blending: THREE.CustomBlending,
       blendEquation: THREE.AddEquation,
       blendSrc: THREE.OneFactor,
@@ -2796,6 +2803,7 @@ const COMP_FRAG = /* glsl */`
   uniform float uVignetteOffset;
   uniform vec3 uCamFwd; uniform vec3 uCamRight; uniform vec3 uCamUp;
   uniform float uTanHalf; uniform float uCloudInk;
+  uniform float uDust; uniform float uDustScale;
   uniform float uFogRoll; uniform float uFogStart; uniform float uFogDepth;
   uniform float uNoiseStrength;
   uniform float uPaperStrength;
@@ -2814,6 +2822,15 @@ const COMP_FRAG = /* glsl */`
     vec2 u = f * f * (3.0 - 2.0 * f);
     return mix(mix(h2c(i), h2c(i + vec2(1, 0)), u.x),
                mix(h2c(i + vec2(0, 1)), h2c(i + vec2(1, 1)), u.x), u.y);
+  }
+  // one drifting mote per grid cell; a few layers at different scales and speeds give
+  // thousands of specks with no geometry at all
+  float motes(vec2 p, float t, float sp, float rad) {
+    vec2 g = floor(p), f = fract(p);
+    float h = h2c(g);
+    vec2 c = vec2(h, fract(h * 57.13));
+    c += vec2(sin(t * sp + h * 31.0), cos(t * sp * 0.79 + h * 17.0)) * 0.30;
+    return smoothstep(rad, 0.0, length(f - c)) * (0.45 + 0.55 * fract(h * 91.7));
   }
   #define M_PI 3.1415926535897932384626433832795
   float easeSin(float v) { return sin((v - 0.5) * M_PI) * 0.5 + 0.5; }
@@ -2988,6 +3005,17 @@ const COMP_FRAG = /* glsl */`
     float fl = h2c(floor(px / 2.0));
     color = mix(color, uPencilColor, smoothstep(0.9987, 1.0, fl) * 0.24);
 
+    // ---- DUST AT THE LENS ------------------------------------------------------
+    // Thousands of specks drifting across the frame, small enough to sit under notice
+    // and enough to keep the plate alive when nothing else moves. Three layers at
+    // different scales and speeds so they read as depth rather than as one sheet.
+    if (uDust > 0.0) {
+      vec2 dp = uv * vec2(resolution.x / resolution.y, 1.0) * uDustScale;
+      float d = motes(dp, uTime, 0.10, 0.052)
+              + motes(dp * 1.73 + 11.3, uTime, 0.16, 0.045) * 0.75
+              + motes(dp * 2.61 + 27.9, uTime, 0.23, 0.038) * 0.55;
+      color = mix(color, uPencilColor, clamp(d, 0.0, 1.0) * uDust);
+    }
     gl_FragColor = vec4(color, 1.0);
   }
 `;
@@ -3012,6 +3040,8 @@ const compMat = new THREE.ShaderMaterial({
     uCamUp:    { value: new THREE.Vector3(0, 1, 0) },
     uTanHalf:  { value: Math.tan(camera.fov * Math.PI / 360) },
     uCloudInk: { value: P.cloudInk },
+    uDust:      { value: P.dust },
+    uDustScale: { value: P.dustScale },
     uFogRoll:  { value: P.fogRoll },
     uFogStart: { value: P.fogStart },
     uFogDepth: { value: P.fogDepth },
