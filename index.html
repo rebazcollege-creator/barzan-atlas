@@ -112,7 +112,7 @@ const P = {
   inkDepth: 0.58,       // the wash, at ink depth
   wash: 1.00,           // master strength of the colour; per-class restraint lives in PIG
   inkCeiling: 0.80,    // the darkest mark on the sheet — never solid ink
-  ashInk:    0.60,
+  ashInk:    0.46,
   birdInk:   0.85,   // the gulls: two strokes, a shade firmer than the ash   // weight of a single ash flake's ink
   cloudInk:  0.62,   // weight of the drawn cloud line work in the sky
   fogRoll:   0.36,   // how far the drifting edge wanders from a plain circle
@@ -2326,7 +2326,7 @@ function placeAsh() {
     base[i * 3 + 2] = (r() - 0.5) * BOX;
     seed[i] = r();
     // a wide spread of sizes: the big flakes read as near, the small ones as far off
-    size[i] = 0.100 + Math.pow(r(), 2.3) * 0.620;
+    size[i] = 0.028 + Math.pow(r(), 2.8) * 0.235;
   }
   const quad = new THREE.PlaneGeometry(1, 1);
   const g = new THREE.InstancedBufferGeometry();
@@ -2341,26 +2341,21 @@ function placeAsh() {
 
   const mat = new THREE.ShaderMaterial({
     vertexShader: /* glsl */`
-      uniform float uTime; uniform vec3 uCamPos; uniform float uBox; uniform float uFollow;
+      uniform float uTime; uniform vec3 uCamPos; uniform float uBox;
       attribute vec3 aBase; attribute float aSeed; attribute float aSize;
       varying vec2 vUv; varying float vSeed; varying float vDepth; varying float vNear;
       void main() {
-        // THE FIELD IS TOWED. Almost none of the speed you saw was the ash: the
-        // camera orbits at roughly 18 m/s, so parallax alone sweeps a flake 15 m away
-        // clean across the frame in under a second, whatever the flake itself is doing.
-        // The field now rides WITH the camera and keeps only a fraction of the
-        // parallax, so the volume still reads as three-dimensional but nothing streaks.
-        vec3 p = aBase + uCamPos * uFollow;
+        vec3 p = aBase;
         // every flake carries its OWN heading and creeps along it, so the field wanders
         // in all directions rather than streaming one way across the frame
         float hd = fract(aSeed * 13.77) * 6.2832;
-        float sp = 0.05 + fract(aSeed * 29.3) * 0.15;
+        float sp = 0.10 + fract(aSeed * 29.3) * 0.30;
         p.xz += vec2(cos(hd), sin(hd)) * uTime * sp;
         // a slow lift, different for each, with a gentle wander on top
-        p.y += uTime * (0.025 + fract(aSeed * 7.13) * 0.11)
-             + sin(uTime * 0.062 + aSeed * 5.0) * 0.75;
-        p.x += sin(uTime * 0.048 + aSeed * 41.0) * 2.0;
-        p.z += cos(uTime * 0.041 + aSeed * 23.0) * 2.0;
+        p.y += uTime * (0.05 + fract(aSeed * 7.13) * 0.22)
+             + sin(uTime * 0.11 + aSeed * 5.0) * 0.9;
+        p.x += sin(uTime * 0.085 + aSeed * 41.0) * 2.4;
+        p.z += cos(uTime * 0.071 + aSeed * 23.0) * 2.4;
         // wrap the whole field into a box centred on the camera, so the drift is
         // endless and you are always standing inside it
         vec3 rel = mod(p - uCamPos + uBox * 0.5, uBox) - uBox * 0.5;
@@ -2368,11 +2363,11 @@ function placeAsh() {
         vDepth = -mv.z;
         vNear = clamp(1.0 - vDepth / (uBox * 0.55), 0.0, 1.0);
         // tumble: a flake of paper turns over as it goes
-        float rot = uTime * (0.045 + fract(aSeed * 5.77) * 0.185) + aSeed * 37.0;
+        float rot = uTime * (0.10 + fract(aSeed * 5.77) * 0.42) + aSeed * 37.0;
         float cr = cos(rot), sr = sin(rot);
         vec2 q = vec2(position.x * cr - position.y * sr, position.x * sr + position.y * cr);
         // and it foreshortens as it turns edge-on, which is what makes ash flicker
-        q.y *= 0.38 + 0.62 * abs(sin(uTime * (0.075 + fract(aSeed * 3.1) * 0.16) + aSeed * 11.0));
+        q.y *= 0.38 + 0.62 * abs(sin(uTime * (0.16 + fract(aSeed * 3.1) * 0.35) + aSeed * 11.0));
         mv.xy += q * aSize;
         vUv = uv; vSeed = aSeed;
         gl_Position = projectionMatrix * mv;
@@ -2403,18 +2398,17 @@ function placeAsh() {
         // one half catches what light there is, the other is the charred side
         float lit = 0.40 + 0.60 * smoothstep(-0.26, 0.26,
                      d.x * cos(vSeed * 9.0) + d.y * sin(vSeed * 9.0));
-        float ink = flake * lit * uInk * (0.70 + 0.30 * vNear);
-        // HELD BACK. Nothing at all inside 28 m and nothing at full weight inside 55,
-        // so the whole field sits at a middle distance: no flake is ever near enough
-        // to loom, and none is near enough for parallax to whip it past.
-        ink *= smoothstep(28.0, 55.0, vDepth);
+        float ink = flake * lit * uInk * (0.55 + 0.45 * vNear);
+        // keep them off the glass: nothing inside 4.5 m, nothing at full strength
+        // inside 11 m, so no flake ever looms across the frame
+        ink *= smoothstep(4.5, 11.0, vDepth);
         float depth = (1.0 - clamp(vDepth * uDepthScale, 0.0, 1.0)) * min(1.0, ink * 7.0);
         gl_FragColor = vec4(0.0, ink, depth, 0.0);
       }`,
     uniforms: {
       uTime: { value: 0 }, uCamPos: { value: new THREE.Vector3() },
       uBox: { value: BOX }, uDepthScale: { value: P.depthScale },
-      uFollow: { value: 0.94 }, uInk: { value: P.ashInk }
+      uInk: { value: P.ashInk }
     },
     side: THREE.DoubleSide,
     blending: THREE.CustomBlending,
