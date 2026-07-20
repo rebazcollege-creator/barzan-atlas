@@ -112,6 +112,9 @@ const P = {
   inkDepth: 0.58,       // the wash, at ink depth
   wash: 1.00,           // master strength of the colour; per-class restraint lives in PIG
   inkCeiling: 0.80,    // the darkest mark on the sheet — never solid ink
+  fogRoll:   0.30,   // how far the drifting edge wanders from a plain circle
+  fogStart:  0.34,   // everything inside this stays completely clear
+  fogDepth:  0.52,   // how much paper the corners take at full haze
   vignetteStrength: 1.2,   // haze lives only in the corners now (radial, from the centre out)
   vignetteOffset: 0.0,     // NO baseline haze — the centre of the plate is clear paper+ink
   paperStrength: 0.40,     // slightly more tooth, so a whiter sheet still reads as paper
@@ -2781,6 +2784,7 @@ const COMP_FRAG = /* glsl */`
   uniform vec3 uBlueInk;
   uniform float uVignetteStrength;
   uniform float uVignetteOffset;
+  uniform float uFogRoll; uniform float uFogStart; uniform float uFogDepth;
   uniform float uNoiseStrength;
   uniform float uPaperStrength;
   uniform float uInkCeiling;
@@ -2901,10 +2905,20 @@ const COMP_FRAG = /* glsl */`
 
     color += (random2d(uv * 100.0 + mod(uTime, 100.0)) - 0.5) * uNoiseStrength;
 
-    float vig = distance(uv, vec2(0.5, 0.5));
-    vig = vig * uVignetteStrength + uVignetteOffset;
-    vig = easeSin(clamp(vig, 0.0, 1.0));
-    color = mix(color, uPaperColor, vig * 0.35);
+    // ---- THE FOG AT THE LENS ---------------------------------------------------
+    // Screen-space, so it never changes with zoom: the same bank of haze sits in the
+    // corners of the frame whatever the camera is doing, and the eye is pushed to the
+    // middle. Its EDGE is a slow two-octave drift rather than a circle, so the fog
+    // breathes and rolls instead of sitting there as a vignette. Both octaves move on
+    // different headings and at different rates, which is what stops it reading as one
+    // texture sliding across the glass.
+    vec2 fp = uv * vec2(resolution.x / resolution.y, 1.0);
+    float roll = vnoiseC(fp * 2.4 + vec2(uTime * 0.0125, uTime * -0.0092)) * 0.60
+               + vnoiseC(fp * 5.7 + vec2(uTime * -0.0207, uTime * 0.0164) + 11.3) * 0.40;
+    float d = distance(uv, vec2(0.5, 0.5)) * 1.42;      // 0 at centre, ~1 at a corner
+    d += (roll - 0.5) * uFogRoll;
+    float vig = easeSin(smoothstep(uFogStart, 1.04, d));
+    color = mix(color, uPaperColor, vig * uFogDepth);
 
     vec2 paperUv = uv * resolution / 512.0;
     float paperStrength = texture2D(tPaper, paperUv).r;
@@ -2951,6 +2965,9 @@ const compMat = new THREE.ShaderMaterial({
     uBlueInk: { value: new THREE.Vector3(0.196, 0.373, 0.494) },
     uVignetteStrength: { value: P.vignetteStrength },
     uVignetteOffset: { value: P.vignetteOffset },
+    uFogRoll:  { value: P.fogRoll },
+    uFogStart: { value: P.fogStart },
+    uFogDepth: { value: P.fogDepth },
     uNoiseStrength: { value: P.noiseStrength },
     uPaperStrength: { value: P.paperStrength },
     uInkCeiling: { value: P.inkCeiling },
