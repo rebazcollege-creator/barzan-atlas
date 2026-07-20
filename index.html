@@ -94,30 +94,7 @@ function mulberry32(a) {
 const P = {
   paper:  [0.973, 0.963, 0.936],   // #f8f6ef — a much whiter, lighter sheet
   pencil: [0.44, 0.41, 0.35],      // paler grey-brown -> Chartogne's faded pencil
-  lightDir: new THREE.Vector3(-0.874, 0.036, 0.485).normalize(), // 2.1 deg: sitting on the ridgeline
-  // ---- DAWN ----------------------------------------------------------------------
-  // Painted in the plate's own register, not photographed. A tinted engraving does its
-  // dawn with a warm wash along the horizon graduating to cool grey overhead, a pool of
-  // low light where the subject is, and haze everywhere else. That is exactly the
-  // picture asked for, and it is the one that does not break the paper.
-  skyEmber: [0.949, 0.588, 0.318],   // #f29651  hottest, right at the ridgeline
-  skyLow:   [0.973, 0.769, 0.408],   // #f8c468  gold
-  skyRose:  [0.937, 0.749, 0.612],   // #efbf9c  the rose band above it
-  cloudLit: [0.996, 0.847, 0.596],   // streak cloud catching the sun
-  cloudDim: [0.804, 0.706, 0.678],   // and the same cloud in its own shadow
-  rayLand:  0.11,                    // how far the shafts carry across the ground
-  skyMid:   [0.914, 0.878, 0.808],   // #e9e0ce
-  skyHigh:  [0.729, 0.784, 0.827],   // #bac8d3  cool blue-grey overhead
-  sunGlow:  [1.000, 0.949, 0.796],   // #fff2cb the bloom
-  sunDisc:  [1.000, 0.980, 0.886],   // the disc itself
-  sunSize:  0.030,         // the disc's angular radius in radians — 1.7 deg
-  sunReach: 4.20,          // tight: the warmth dies within about 20 degrees of the sun
-  rayGain:  0.22,          // the engraver's sunburst: fine lines radiating from the sun
-  sunTint:  [1.075, 0.995, 0.870],   // what the low sun does to a lit face
-  shadeTint:[0.930, 0.955, 1.020],   // and what the sky alone does to a shaded one
-  poolWarm: 0.52,          // strength of the light pool sitting on the village
-  poolSize: 0.44,          // its radius, in screen heights
-  dawn:     1.0,           // master: 0 turns the whole dawn off and restores the day plate
+  lightDir: new THREE.Vector3(-0.78, 0.40, 0.48).normalize(),   // low and lateral: one wall
                                                                 // is truly lit, the other truly in shade
   strokeDir: new THREE.Vector3(1.0, 1.35, 0.45).normalize(),
   subdivision: 1.75,       // lines/metre on walls — their measured pitch. Countable marks
@@ -1231,8 +1208,6 @@ const PIG_FRAG = /* glsl */`
   uniform float uPigS;
   uniform float uPigMode;
   uniform float uPigVary;
-  uniform vec3 uSunTint;
-  uniform vec3 uShadeTint;
   uniform sampler2D uStandMap;
   uniform vec3 uVar1Lo; uniform vec3 uVar1Hi; uniform vec3 uVar1Top;
   uniform vec3 uVar2Lo; uniform vec3 uVar2Hi; uniform vec3 uVar2Top;
@@ -1282,9 +1257,6 @@ const PIG_FRAG = /* glsl */`
       }
       vec3 side = mix(lo, hi, lit);           // shaded -> sunlit
       vec3 c = mix(side, top, up);            // -> the roof plane / the crown top
-      // golden hour: a lit face takes the sun's warmth, a shaded one takes only the
-      // sky, which is cool. This split is most of what reads as low sunlight.
-      c *= mix(uShadeTint, uSunTint, lit);
       c *= 0.94 + vPhase * 0.12;              // every instance its own mix in the pan
       gl_FragColor = vec4(c, uPigS);
     }
@@ -1303,8 +1275,6 @@ function pigMaterial(lo, hi, top, strength, opts = {}) {
       uPigTop:  { value: new THREE.Vector3(top[0], top[1], top[2]) },
       uLightDir:{ value: P.lightDir },
       uPigS:    { value: strength },
-      uSunTint:   { value: new THREE.Vector3(...P.sunTint) },
-      uShadeTint: { value: new THREE.Vector3(...P.shadeTint) },
       uPigMode: { value: opts.map ? 0 : 1 },
       uPigVary: { value: opts.ways ? 2 : opts.vary ? 1 : 0 },
       uVar1Top: { value: new THREE.Vector3(...((opts.ways ? opts.ways[2] : [0,0,0]).slice(0,3))) },
@@ -2218,7 +2188,7 @@ const smokeMat = new THREE.ShaderMaterial({
       // Depth must follow the SMOKE, not the quad: writing it across the whole plane
       // gave the Sobel pass a rectangular step to outline — those were the corners.
       float depth = (1.0 - clamp(vDepth * uDepthScale, 0.0, 1.0)) * min(1.0, ink * 7.0);
-      gl_FragColor = vec4(0.0, ink, 0.0, 0.0);   // no depth: a plume is not ground
+      gl_FragColor = vec4(0.0, ink, depth, 0.0);
     }
   `,
   uniforms: { uTime: { value: 0 }, uSeed: { value: 0 }, uSpeed: { value: 0.16 }, uDepthScale: { value: P.depthScale } },
@@ -2814,16 +2784,6 @@ const COMP_FRAG = /* glsl */`
   uniform float uNoiseStrength;
   uniform float uPaperStrength;
   uniform float uInkCeiling;
-  uniform vec3 uSkyEmber; uniform vec3 uSkyLow; uniform vec3 uSkySRose;
-  uniform vec3 uSkyMid; uniform vec3 uSkyHigh;
-  uniform vec3 uCloudLit; uniform vec3 uCloudDim; uniform float uRayLand;
-  uniform vec3 uSunGlow; uniform vec3 uSunDisc;
-  uniform float uRayGain; uniform float uSunVis; uniform float uSunReach;
-  uniform vec3 uCamFwd; uniform vec3 uCamRight; uniform vec3 uCamUp;
-  uniform vec3 uSunDir; uniform float uTanHalf; uniform float uSunSize;
-  uniform vec2 uSunScreen;     // where the sun sits on screen
-  uniform vec2 uTownScreen;    // and where Barzan does
-  uniform float uPoolWarm; uniform float uPoolSize; uniform float uDawn;
   uniform sampler2D tPigment;
   uniform float uWash;
   uniform float uInkTint;
@@ -2934,86 +2894,17 @@ const COMP_FRAG = /* glsl */`
     // than the paper tooth, and that unevenness is most of what says 'painted by hand'.
     float pool = 0.80 + 0.38 * vnoiseC(px / 240.0 + 41.3) - 0.09 * vnoiseC(px / 71.0);
     vec3 sheet = mix(uPaperColor, pig.rgb, clamp(pig.a * uWash * bite * pool, 0.0, 1.0));
-    vec3 color = sheet;   // ink is laid on later, once we know what is behind it
+    vec3 color = mix(sheet, inkCol, cover);
 
     // far ridges dissolve into the air of the page
-    // ---- THE SKY -------------------------------------------------------------
-    // Everywhere no geometry stands, the sheet becomes dawn: gold along the horizon,
-    // cool grey overhead, and the sun's bloom where the light is coming from. Still a
-    // wash on paper — the grain and the frame run straight over it.
-    vec3 sky = uPaperColor;
-    if (uDawn > 0.001) {
-      // THE SKY IS BANDED BY ALTITUDE, NOT BY SCREEN POSITION. Keying the gradient to
-      // uv.y put the gold in the bottom 16% of the FRAME — which is land — so only the
-      // pale top of the gradient was ever visible and the dawn read as fog. Rebuild the
-      // view ray per pixel and band the sky by its angle above the true horizon.
-      float aspect = resolution.x / resolution.y;
-      vec3 rd = normalize(uCamFwd
-                        + uCamRight * ((uv.x - 0.5) * 2.0 * aspect * uTanHalf)
-                        + uCamUp    * ((uv.y - 0.5) * 2.0 * uTanHalf));
-      float el = clamp(rd.y, -1.0, 1.0);                 // 0 at the horizon
-      float cosang = dot(rd, uSunDir);
-      float ang = acos(clamp(cosang, -1.0, 1.0));        // radians from the sun
-
-      // THE FOG IS THE SKY. The plate is haze on paper everywhere, and the sunrise is a
-      // LOCAL event burning a hole in it — a whole orange sky belongs to a photograph,
-      // not to this map. So: build the fog first, build the dawn separately, and let
-      // the dawn reach only as far as uSunReach before the haze takes it back.
-      vec3 fog = mix(uPaperColor, uSkyHigh, smoothstep(-0.02, 0.52, el) * 0.30);
-
-      vec3 warm = mix(uSkyEmber, uSkyLow, smoothstep(0.000, 0.030, el));
-      warm = mix(warm, uSkySRose, smoothstep(0.020, 0.085, el));
-      warm = mix(warm, uSkyMid,   smoothstep(0.070, 0.230, el));
-      // Streak cloud, FIXED IN THE SKY. It was sampled on px — screen pixels — so it
-      // was painted on the glass and slid about as the camera turned. Sampling the view
-      // ray projected onto a cloud plane instead pins it to a direction: turn the camera
-      // and you move through the cloud, you do not drag it along. The projection also
-      // foreshortens the streaks toward the horizon on its own, which is what they do.
-      vec2 cuv = rd.xz / max(rd.y, 0.055);
-      float cl = vnoiseC(cuv * 0.42 + 3.1) * 0.62
-               + vnoiseC(cuv * 1.15 + 9.4) * 0.38;
-      float band = smoothstep(0.46, 0.78, cl) * smoothstep(0.42, 0.02, el);
-      warm = mix(warm, mix(uCloudDim, uCloudLit, smoothstep(0.09, 0.005, el)), band * 0.60);
-
-      // how much dawn survives here: close to the sun, and low in the sky
-      // the warm band hugs the horizon and the sun, and nowhere else
-      float reach = exp(-ang * uSunReach);
-      float low   = smoothstep(0.115, -0.02, el);
-      sky = mix(fog, warm, clamp(reach * low * 1.15, 0.0, 1.0) * 0.88);
-
-      // No disc and no rays. Both read as a graphic pasted on the plate rather than
-      // as light in it. What is left is the thing that was working: a warm brightening
-      // low in the sky where the sun is coming up, dying quickly into the haze.
-      sky = mix(sky, uSunGlow, exp(-ang * 5.0) * 0.42);
-      sky = mix(uPaperColor, sky, uDawn);
-    }
-    // background first — sky or ground — and only THEN the ink over it. Smoke drawn
-    // against the dawn now sits on the dawn instead of on a white patch.
-    color = mix(sky, color, smoothstep(0.01, 0.22, data.b));
-    color = mix(color, inkCol, cover);
-
-    // ---- THE POOL OF LIGHT ---------------------------------------------------
-    // The village stands in the sun; the land around it stays in the blue of the hour.
-    // A colourist would lay exactly this, and it is why the eye goes to Barzan.
-    if (uDawn > 0.001) {
-      float pd = distance(uv * vec2(resolution.x / resolution.y, 1.0),
-                          uTownScreen * vec2(resolution.x / resolution.y, 1.0));
-      float pool = 1.0 - smoothstep(uPoolSize * 0.25, uPoolSize, pd);
-      // ONLY on the land. Letting it touch the sky turned the pool into a soft blob
-      // hanging in the air instead of light lying on the ground.
-      float onLand = smoothstep(0.01, 0.22, data.b);
-
-      color *= mix(vec3(1.0), mix(vec3(0.949, 0.963, 1.012),
-                                  vec3(1.0) + (uSunGlow - vec3(0.86)) * uPoolWarm, pool),
-                   uDawn * onLand);
-    }
+    color = mix(uPaperColor, color, smoothstep(0.01, 0.22, data.b));
 
     color += (random2d(uv * 100.0 + mod(uTime, 100.0)) - 0.5) * uNoiseStrength;
 
     float vig = distance(uv, vec2(0.5, 0.5));
     vig = vig * uVignetteStrength + uVignetteOffset;
     vig = easeSin(clamp(vig, 0.0, 1.0));
-    color = mix(color, uPaperColor, vig * 0.35 * mix(0.22, 1.0, smoothstep(0.01, 0.22, data.b)));
+    color = mix(color, uPaperColor, vig * 0.35);
 
     vec2 paperUv = uv * resolution / 512.0;
     float paperStrength = texture2D(tPaper, paperUv).r;
@@ -3063,30 +2954,6 @@ const compMat = new THREE.ShaderMaterial({
     uNoiseStrength: { value: P.noiseStrength },
     uPaperStrength: { value: P.paperStrength },
     uInkCeiling: { value: P.inkCeiling },
-    uSkyLow:  { value: new THREE.Vector3(...P.skyLow) },
-    uSkySRose: { value: new THREE.Vector3(...P.skyRose) },
-    uSkyEmber: { value: new THREE.Vector3(...P.skyEmber) },
-    uCloudLit: { value: new THREE.Vector3(...P.cloudLit) },
-    uCloudDim: { value: new THREE.Vector3(...P.cloudDim) },
-    uRayLand:  { value: P.rayLand },
-    uSunDisc: { value: new THREE.Vector3(...P.sunDisc) },
-    uRayGain: { value: P.rayGain },
-    uSunReach: { value: P.sunReach },
-    uSunVis:  { value: 1 },
-    uCamFwd:   { value: new THREE.Vector3(0, 0, -1) },
-    uCamRight: { value: new THREE.Vector3(1, 0, 0) },
-    uCamUp:    { value: new THREE.Vector3(0, 1, 0) },
-    uSunDir:   { value: P.lightDir.clone() },
-    uTanHalf:  { value: Math.tan(camera.fov * Math.PI / 360) },
-    uSunSize:  { value: P.sunSize },
-    uSkyMid:  { value: new THREE.Vector3(...P.skyMid) },
-    uSkyHigh: { value: new THREE.Vector3(...P.skyHigh) },
-    uSunGlow: { value: new THREE.Vector3(...P.sunGlow) },
-    uSunScreen:  { value: new THREE.Vector2(0.5, 0.62) },
-    uTownScreen: { value: new THREE.Vector2(0.5, 0.5) },
-    uPoolWarm: { value: P.poolWarm },
-    uPoolSize: { value: P.poolSize },
-    uDawn:     { value: P.dawn },
     tPigment: { value: rtPig.texture },
     uWash: { value: P.wash },
     uInkTint: { value: P.inkTint },
@@ -3177,8 +3044,6 @@ function keepAboveGround() {
   }
 }
 
-const _sunV = new THREE.Vector3(), _townV = new THREE.Vector3(),
-      _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
 renderer.setAnimationLoop(() => {
   controls.update();
   keepAboveGround();
@@ -3189,20 +3054,6 @@ renderer.setAnimationLoop(() => {
   treeStats.popM.uniforms.uTime.value = tNow;
   for (let i = 0; i < SMOKE_MATS.length; i++) SMOKE_MATS[i].uniforms.uTime.value = tNow;
   for (let i = 0; i < PIG_MATS.length; i++) PIG_MATS[i].uniforms.uTime.value = tNow;
-  // where is the sun, and where is Barzan, on screen this frame?
-  _sunV.copy(P.lightDir).multiplyScalar(9000).add(controls.target);
-  camera.getWorldDirection(_fwd);
-  compMat.uniforms.uCamFwd.value.copy(_fwd);
-  _right.crossVectors(_fwd, camera.up).normalize();
-  compMat.uniforms.uCamRight.value.copy(_right);
-  compMat.uniforms.uCamUp.value.crossVectors(_right, _fwd).normalize();
-  compMat.uniforms.uTanHalf.value = Math.tan(camera.fov * Math.PI / 360);
-  const ahead = _sunV.clone().sub(camera.position).normalize().dot(_fwd);
-  _sunV.project(camera);
-  compMat.uniforms.uSunScreen.value.set(_sunV.x * 0.5 + 0.5, _sunV.y * 0.5 + 0.5);
-  compMat.uniforms.uSunVis.value = Math.max(0, Math.min(1, (ahead - 0.05) * 4.0));
-  _townV.set(CX, hTown + 30, CZ).project(camera);
-  compMat.uniforms.uTownScreen.value.set(_townV.x * 0.5 + 0.5, _townV.y * 0.5 + 0.5);
   renderPigment();
   renderer.setRenderTarget(rt);
   renderer.render(scene, camera);
