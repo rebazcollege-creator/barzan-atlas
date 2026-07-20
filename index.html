@@ -1614,7 +1614,7 @@ function houseArchetype(kind) {
     const p = [
       boxPart(9, 3.2, 7, 0, 1.6, 0, 0.74, 0, 2),
       boxPart(9.8, 0.42, 7.8, 0, 3.4, 0, 0.60),
-      boxPart(1.4, 2.2, 0.15, 0.6, 1.1, 3.56, 0.16, 1)
+      boxPart(1.4, 2.2, 0.08, 0.6, 1.1, 3.48, 0.16, 1)
     ];
     for (let i = 0; i < 6; i++)                                             // the beam ends
       p.push(boxPart(0.22, 0.22, 0.7, -3.6 + i * 1.45, 3.05, 3.85, 0.44));
@@ -1641,7 +1641,7 @@ function houseArchetype(kind) {
     const p = [
       boxPart(8, 2.6, 4.6, 0, 1.3, 1.0, 0.68, 0, 3),
       boxPart(8.4, 0.35, 5.0, 0, 2.75, 1.0, 0.56),
-      boxPart(2.2, 2.0, 0.14, -1.6, 1.0, 3.35, 0.20, 1),
+      boxPart(2.2, 2.0, 0.08, -1.6, 1.0, 3.28, 0.20, 1),
       boxPart(3.0, 1.9, 2.6, 3.2, 0.95, -3.4, 0.60)                        // hay stack
     ];
     return mergeGeometries(p);
@@ -1654,8 +1654,8 @@ function houseArchetype(kind) {
       boxPart(9.6, 0.5, 7.6, 0, 6.85, 0, 0.62),
       boxPart(0.45, 0.95, 7.6, -4.6, 7.6, 0, 0.58),                        // parapet
       boxPart(9.6, 0.95, 0.45, 0, 7.6, -3.6, 0.58),
-      boxPart(1.5, 2.6, 0.15, 1.1, 1.3, 3.56, 0.16, 1),
-      boxPart(1.1, 1.3, 0.15, -2.4, 4.0, 3.56, 0.22, 1)
+      boxPart(1.5, 2.6, 0.08, 1.1, 1.3, 3.48, 0.16, 1),
+      boxPart(1.1, 1.3, 0.08, -2.4, 4.0, 3.48, 0.22, 1)
     ];
     for (let i = 0; i < 4; i++)                                             // the unbuilt storey
       p.push(boxPart(0.42, 1.5, 0.42, -3.6 + i * 2.4, 7.85, 2.4, 0.72));
@@ -1669,9 +1669,12 @@ function houseArchetype(kind) {
     boxPart(9, 6.6, 7, 0, 3.3, 0, 0.78, 0, 1),
     boxPart(9.4, 0.5, 7.4, 0, 6.85, 0, 0.62),
     boxPart(8.8, 0.12, 6.8, 0, 7.16, 0, 0.42),
-    boxPart(1.5, 2.6, 0.15, 1.1, 1.3, 3.56, 0.16, 1),
-    boxPart(1.1, 1.3, 0.15, -2.2, 3.9, 3.56, 0.22, 1),
-    boxPart(1.1, 1.3, 0.15, 4.56, 3.9, 0.9, 0.22, 1).rotateY(Math.PI / 2),
+    boxPart(1.5, 2.6, 0.08, 1.1, 1.3, 3.48, 0.16, 1),
+    boxPart(1.1, 1.3, 0.08, -2.2, 3.9, 3.48, 0.22, 1),
+    // built thin-in-X directly on the side wall. It used to be a front-facing window
+    // spun 90 degrees, but rotateY turns the ALREADY-TRANSLATED box about the origin,
+    // so it swung the opening off the wall and left it hanging 1.06 m out in the air.
+    boxPart(0.08, 1.3, 1.1, 4.48, 3.9, 0.9, 0.22, 1),
     boxPart(0.85, 1.9, 0.85, CHIM[0], 8.2, CHIM[2], 0.50)
   ];
   if (kind === 1) {
@@ -1691,7 +1694,7 @@ function houseArchetype(kind) {
   if (kind === 4) {
     parts.push(boxPart(6.6, 3.2, 5.2, -0.6, 8.9, 0, 0.78, 0, 1));
     parts.push(boxPart(6.9, 0.45, 5.5, -0.6, 10.7, 0, 0.62));
-    parts.push(boxPart(1.1, 1.3, 0.15, -1.6, 8.9, 2.66, 0.22, 1));
+    parts.push(boxPart(1.1, 1.3, 0.08, -1.6, 8.9, 2.58, 0.22, 1));
   }
   if (kind === 5) {
     parts.push(boxPart(7.4, 1.9, 0.35, 1.2, 0.95, -6.2, 0.44));
@@ -2327,10 +2330,10 @@ function placeMosque() {
   P0.push(boxPart(15.0, 0.30, 3.20, 0, 4.85, 0.60, 0.62));               // portico slab
   for (let i = 0; i < 5; i++)
     P0.push(boxPart(0.60, 4.30, 0.60, -6 + i * 3, 2.65, 1.90, 0.72));    // portico piers
-  P0.push(boxPart(1.80, 2.60, 0.14, 0, 1.80, HZ + 6.05, 0.30, 1));       // the door
+  P0.push(boxPart(1.80, 2.60, 0.08, 0, 1.80, HZ + 5.98, 0.30, 1));       // the door
   for (let i = 0; i < 3; i++) {
-    P0.push(boxPart(0.14, 1.80, 1.60, -7.55, 2.50, HZ - 3.6 + i * 3.6, 0.26, 1));
-    P0.push(boxPart(0.14, 1.80, 1.60,  7.55, 2.50, HZ - 3.6 + i * 3.6, 0.26, 1));
+    P0.push(boxPart(0.08, 1.80, 1.60, -7.48, 2.50, HZ - 3.6 + i * 3.6, 0.26, 1));
+    P0.push(boxPart(0.08, 1.80, 1.60,  7.48, 2.50, HZ - 3.6 + i * 3.6, 0.26, 1));
   }
   // minaret, attached at the corner of the hall — 14.7 m, against 9 m for a house
   const MX = 8.6, MZ = -1.2;
