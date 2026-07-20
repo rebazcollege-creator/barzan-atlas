@@ -186,9 +186,9 @@ const DATA_VERT = /* glsl */`
       // together as one body, plus a short ripple so no two trees are identical.
       float swell  = sin(uTime * 0.40 + instanceMatrix[3][0] * 0.0115 + instanceMatrix[3][2] * 0.0090);
       float swell2 = cos(uTime * 0.31 + instanceMatrix[3][0] * 0.0082 - instanceMatrix[3][2] * 0.0126);
-      float ripple = sin(uTime * 1.10 + instanceMatrix[3][0] * 0.13 + instanceMatrix[3][2] * 0.11);
-      objPos.x += (swell  * 0.78 + ripple * 0.22) * wf;
-      objPos.z += (swell2 * 0.70 + ripple * 0.20) * wf * 0.85;
+      float ripple = sin(uTime * 1.45 + instanceMatrix[3][0] * 0.13 + instanceMatrix[3][2] * 0.11);
+      objPos.x += (swell  * 0.92 + ripple * 0.34) * wf;
+      objPos.z += (swell2 * 0.84 + ripple * 0.30) * wf * 0.85;
     #endif
     vWorldPos = (modelMatrix * vec4(objPos, 1.0)).xyz;
     vNormalV = normalMatrix * objNormal;
@@ -2028,7 +2028,7 @@ function placeTrees() {
   // build instanced meshes
   const crownG = lobedCrown(2.3, 77, 0.8);
   const crownM = dataMaterial(0.62, { ...TREE_STROKE, toneGrad: 0.40, gradY0: -2.0, gradY1: 2.2,
-                                     softShade: 0.14, windAmp: 0.95 });   // full contrast, open inside, swimming
+                                     softShade: 0.14, windAmp: 2.35 });  // full contrast, open inside, and visibly swimming
   const crowns = new THREE.InstancedMesh(crownG, crownM, trees.length);
   const dummy = new THREE.Object3D();
   trees.forEach(([tx2, ty2, s2], i) => {
@@ -2071,7 +2071,7 @@ function placeTrees() {
     trunk.setAttribute('aSolid', new THREE.BufferAttribute(new Float32Array(nT).fill(1), 1));
     return mergeGeometries([crown, trunk]);
   })();
-  const popM = dataMaterial(0, { ...TREE_STROKE, toneGrad: 0.35, gradY0: 0.5, gradY1: 7.5, windAmp: 0.3 });
+  const popM = dataMaterial(0, { ...TREE_STROKE, toneGrad: 0.35, gradY0: 0.5, gradY1: 7.5, windAmp: 1.05 });
   const pops = new THREE.InstancedMesh(popG, popM, poplars.length);
   poplars.forEach(([tx2, ty2, s2], i) => {
     dummy.position.set(tx2, sampleH(tx2, ty2), -ty2);
@@ -2387,6 +2387,41 @@ function placePaddocks() {
     const k = Math.floor(p[0] / GC) + ',' + Math.floor(p[1] / GC);
     (RG.get(k) || RG.set(k, []).get(k)).push(p);
   });
+  // every road segment with its bearing, gridded. A field's angle comes from the lane
+  // it sits beside — that is what makes it agree with the roads, with the houses that
+  // front those same lanes, and therefore with its neighbours.
+  const SEG = [], SG = new Map();
+  [S.roadsMajor, S.roadsMinor, S.tracks].forEach(set => set.forEach(l => {
+    for (let i = 1; i < l.length; i++) {
+      const a = l[i - 1], b = l[i], dx = b[0] - a[0], dy = b[1] - a[1];
+      if (dx * dx + dy * dy < 25) continue;
+      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+      const sg = [mx, my, Math.atan2(dy, dx)];
+      SEG.push(sg);
+      const k = Math.floor(mx / GC) + ',' + Math.floor(my / GC);
+      (SG.get(k) || SG.set(k, []).get(k)).push(sg);
+    }
+  }));
+  const alignAngle = (wx, wy) => {
+    const ci = Math.floor(wx / GC), cj = Math.floor(wy / GC);
+    let best = null, bd = 105 * 105;
+    for (let i = ci - 2; i <= ci + 2; i++) for (let j = cj - 2; j <= cj + 2; j++) {
+      const a = SG.get(i + ',' + j); if (!a) continue;
+      for (const sg of a) {
+        const d = (sg[0] - wx) ** 2 + (sg[1] - wy) ** 2;
+        if (d < bd) { bd = d; best = sg; }
+      }
+    }
+    if (best) return best[2];
+    // no lane close by: fall in with the grain of the surrounding houses instead.
+    // Angles are mod PI, so they average as doubled-angle vectors.
+    let vx = 0, vy = 0;
+    for (const f of feats) {
+      if ((f.x - wx) ** 2 + (f.y - wy) ** 2 > 150 * 150) continue;
+      vx += Math.cos(2 * f.ang); vy += Math.sin(2 * f.ang);
+    }
+    return (vx || vy) ? Math.atan2(vy, vx) / 2 : 0;
+  };
   const roadsNear = (wx, wy, r) => {
     const ci = Math.floor(wx / GC), cj = Math.floor(wy / GC), rc = Math.ceil(r / GC), out = [];
     for (let i = ci - rc; i <= ci + rc; i++) for (let j = cj - rc; j <= cj + rc; j++) {
@@ -2409,7 +2444,7 @@ function placePaddocks() {
     const a2 = rng() * Math.PI * 2, rad = 52 + rng() * 78;
     const wx = b[0] + Math.cos(a2) * rad, wy = b[1] + Math.sin(a2) * rad;
     if (Math.abs(wx - CX) > SPAN * 0.44 || Math.abs(wy + CZ) > SPAN * 0.44) continue;
-    const ang = rng() * Math.PI;
+    const ang = alignAngle(wx, wy);
     const hw = 19 + rng() * 15, hd = 12 + rng() * 9;      // 38-68 m by 24-42 m
     const ca = Math.cos(ang), sa = Math.sin(ang);
     // the whole rectangle has to be clear of buildings, not just its centre
@@ -2437,6 +2472,7 @@ function placePaddocks() {
       if (Math.abs(dx * ca + dy * sa) < hw + 9 && Math.abs(dx * sa - dy * ca) < hd + 9) { onRoad = true; break; }
     }
     if (onRoad) continue;
+    if (Math.hypot(wx - MOSQUE.x, wy - MOSQUE.y) < 95) continue;   // not beside the mosque
     if (fields.some(g => (g.x - wx) ** 2 + (g.y - wy) ** 2 < (hw + g.hw + 12) ** 2)) continue;
     fields.push({ x: wx, y: wy, ang, hw, hd, cattle: rng() < 0.34 });
   }
