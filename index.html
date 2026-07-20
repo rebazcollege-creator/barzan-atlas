@@ -112,8 +112,7 @@ const P = {
   inkDepth: 0.58,       // the wash, at ink depth
   wash: 1.00,           // master strength of the colour; per-class restraint lives in PIG
   inkCeiling: 0.80,    // the darkest mark on the sheet — never solid ink
-  dust:      0.30,   // weight of the drifting lens dust: seen, but never read as dirt
-  dustScale: 26.0,   // cell ~25 css px, so a mote lands near 5 px across and is actually seen
+  ashInk:    0.62,   // weight of a single ash flake's ink
   cloudInk:  0.46,   // weight of the drawn cloud line work in the sky
   fogRoll:   0.36,   // how far the drifting edge wanders from a plain circle
   fogStart:  0.13,   // only a small lens at the centre stays completely clear
@@ -2308,6 +2307,114 @@ function addLabels() {
   });
 }
 
+/* ---------- ash ----------
+   Burnt paper: the flakes that lift off a fire of books and turn over in the air.
+   These are REAL particles in 3D, not a screen effect — some pass a few metres from
+   the lens and some are eighty metres off, so orbiting gives true parallax and the
+   near ones sweep past far faster than the far ones. They live in a box that follows
+   the camera and wraps, so you are always inside the drift wherever you go, and
+   because they are scene geometry the lens fog lays over them at the corners rather
+   than the other way round. */
+function placeAsh() {
+  const N = 2600, BOX = 170;
+  const base = new Float32Array(N * 3), seed = new Float32Array(N), size = new Float32Array(N);
+  const r = mulberry32(6021);
+  for (let i = 0; i < N; i++) {
+    base[i * 3]     = (r() - 0.5) * BOX;
+    base[i * 3 + 1] = (r() - 0.5) * BOX;
+    base[i * 3 + 2] = (r() - 0.5) * BOX;
+    seed[i] = r();
+    // a wide spread of sizes: the big flakes read as near, the small ones as far off
+    size[i] = 0.05 + Math.pow(r(), 2.2) * 0.62;
+  }
+  const quad = new THREE.PlaneGeometry(1, 1);
+  const g = new THREE.InstancedBufferGeometry();
+  g.index = quad.index;
+  g.setAttribute('position', quad.attributes.position);
+  g.setAttribute('uv', quad.attributes.uv);
+  g.setAttribute('aBase', new THREE.InstancedBufferAttribute(base, 3));
+  g.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seed, 1));
+  g.setAttribute('aSize', new THREE.InstancedBufferAttribute(size, 1));
+  g.instanceCount = N;
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: /* glsl */`
+      uniform float uTime; uniform vec3 uCamPos; uniform float uBox;
+      attribute vec3 aBase; attribute float aSeed; attribute float aSize;
+      varying vec2 vUv; varying float vSeed; varying float vDepth; varying float vNear;
+      void main() {
+        vec3 p = aBase;
+        // ash rises, and wanders while it rises
+        p.y += uTime * (0.28 + fract(aSeed * 7.13) * 0.85);
+        p.x += sin(uTime * 0.31 + aSeed * 41.0) * 2.3 + sin(uTime * 0.11 + aSeed * 7.0) * 4.0;
+        p.z += cos(uTime * 0.26 + aSeed * 23.0) * 2.3 + cos(uTime * 0.09 + aSeed * 3.0) * 4.0;
+        // wrap the whole field into a box centred on the camera, so the drift is
+        // endless and you are always standing inside it
+        vec3 rel = mod(p - uCamPos + uBox * 0.5, uBox) - uBox * 0.5;
+        vec4 mv = viewMatrix * vec4(uCamPos + rel, 1.0);
+        vDepth = -mv.z;
+        vNear = clamp(1.0 - vDepth / (uBox * 0.55), 0.0, 1.0);
+        // tumble: a flake of paper turns over as it goes
+        float rot = uTime * (0.35 + fract(aSeed * 5.77) * 1.5) + aSeed * 37.0;
+        float cr = cos(rot), sr = sin(rot);
+        vec2 q = vec2(position.x * cr - position.y * sr, position.x * sr + position.y * cr);
+        // and it foreshortens as it turns edge-on, which is what makes ash flicker
+        q.y *= 0.35 + 0.65 * abs(sin(uTime * (0.5 + fract(aSeed * 3.1)) + aSeed * 11.0));
+        mv.xy += q * aSize;
+        vUv = uv; vSeed = aSeed;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */`
+      uniform float uDepthScale; uniform float uInk;
+      varying vec2 vUv; varying float vSeed; varying float vDepth; varying float vNear;
+      float ashHash(float i, float sd) { return fract(sin((i + sd * 31.7) * 127.1) * 43758.5453); }
+      // a noise wrapped once around the rim. Harmonics were tried first and they are
+      // inherently periodic — three of them gave butterflies, four gave stars. Noise
+      // has no period, so every scrap is genuinely irregular.
+      float ashRim(float a, float sd, float segs, float off) {
+        float t = (a / 6.2832 + 1.0) * segs;
+        float i = floor(t), fr = fract(t);
+        fr = fr * fr * (3.0 - 2.0 * fr);
+        return mix(ashHash(mod(i, segs) + off, sd), ashHash(mod(i + 1.0, segs) + off, sd), fr);
+      }
+      void main() {
+        // a torn scrap of burnt paper, stretched along a random axis
+        float stretch = 0.62 + ashHash(3.0, vSeed) * 0.70;
+        vec2 d = vUv - 0.5;
+        d.y /= stretch;
+        float a = atan(d.y, d.x), rr = length(d);
+        float edge = 0.24 + ashRim(a, vSeed, 7.0, 0.0) * 0.15
+                          + ashRim(a, vSeed, 13.0, 17.0) * 0.06;
+        float flake = smoothstep(edge, edge - 0.022, rr);
+        if (flake < 0.02) discard;
+        // one half catches what light there is, the other is the charred side
+        float lit = 0.40 + 0.60 * smoothstep(-0.26, 0.26,
+                     d.x * cos(vSeed * 9.0) + d.y * sin(vSeed * 9.0));
+        float ink = flake * lit * uInk * (0.55 + 0.45 * vNear);
+        float depth = (1.0 - clamp(vDepth * uDepthScale, 0.0, 1.0)) * min(1.0, ink * 7.0);
+        gl_FragColor = vec4(0.0, ink, depth, 0.0);
+      }`,
+    uniforms: {
+      uTime: { value: 0 }, uCamPos: { value: new THREE.Vector3() },
+      uBox: { value: BOX }, uDepthScale: { value: P.depthScale },
+      uInk: { value: P.ashInk }
+    },
+    side: THREE.DoubleSide,
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.AddEquation,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneFactor,
+    depthWrite: false,
+    transparent: true
+  });
+  const m = new THREE.Mesh(g, mat);
+  m.frustumCulled = false;
+  scene.add(m);
+  return mat;
+}
+const ashMat = placeAsh();
+
 /* ---------- the Zab: a draped ink ribbon along the real course ---------- */
 
 function addRiver() {
@@ -2812,7 +2919,6 @@ const COMP_FRAG = /* glsl */`
   uniform float uVignetteOffset;
   uniform vec3 uCamFwd; uniform vec3 uCamRight; uniform vec3 uCamUp;
   uniform float uTanHalf; uniform float uCloudInk;
-  uniform float uDust; uniform float uDustScale;
   uniform float uFogRoll; uniform float uFogStart; uniform float uFogDepth;
   uniform float uNoiseStrength;
   uniform float uPaperStrength;
@@ -2831,18 +2937,6 @@ const COMP_FRAG = /* glsl */`
     vec2 u = f * f * (3.0 - 2.0 * f);
     return mix(mix(h2c(i), h2c(i + vec2(1, 0)), u.x),
                mix(h2c(i + vec2(0, 1)), h2c(i + vec2(1, 1)), u.x), u.y);
-  }
-  // one drifting mote per grid cell; a few layers at different scales and speeds give
-  // thousands of specks with no geometry at all
-  float motes(vec2 p, float t, float sp, float rad) {
-    vec2 g = floor(p), f = fract(p);
-    float h = h2c(g);
-    if (h < 0.34) return 0.0;                     // leave gaps, or it reads as grain
-    vec2 c = vec2(fract(h * 21.7), fract(h * 57.13));
-    // a wandering drift rather than a circle, so no two motes trace the same path
-    c += vec2(sin(t * sp + h * 31.0) + sin(t * sp * 0.41 + h * 7.3) * 0.5,
-              cos(t * sp * 0.79 + h * 17.0) + cos(t * sp * 0.33 + h * 3.1) * 0.5) * 0.28;
-    return smoothstep(rad, rad * 0.15, length(f - c)) * (0.55 + 0.45 * fract(h * 91.7));
   }
   #define M_PI 3.1415926535897932384626433832795
   float easeSin(float v) { return sin((v - 0.5) * M_PI) * 0.5 + 0.5; }
@@ -3014,17 +3108,6 @@ const COMP_FRAG = /* glsl */`
     float fl = h2c(floor(px / 2.0));
     color = mix(color, uPencilColor, smoothstep(0.9987, 1.0, fl) * 0.24);
 
-    // ---- DUST AT THE LENS ------------------------------------------------------
-    // Thousands of specks drifting across the frame, small enough to sit under notice
-    // and enough to keep the plate alive when nothing else moves. Three layers at
-    // different scales and speeds so they read as depth rather than as one sheet.
-    if (uDust > 0.0) {
-      vec2 dp = uv * vec2(resolution.x / resolution.y, 1.0) * uDustScale;
-      float d = motes(dp, uTime, 0.42, 0.098)
-              + motes(dp * 1.73 + 11.3, uTime, 0.58, 0.078) * 0.80
-              + motes(dp * 2.61 + 27.9, uTime, 0.80, 0.062) * 0.60;
-      color = mix(color, uPencilColor, clamp(d, 0.0, 1.0) * uDust);
-    }
     gl_FragColor = vec4(color, 1.0);
   }
 `;
@@ -3049,8 +3132,6 @@ const compMat = new THREE.ShaderMaterial({
     uCamUp:    { value: new THREE.Vector3(0, 1, 0) },
     uTanHalf:  { value: Math.tan(camera.fov * Math.PI / 360) },
     uCloudInk: { value: P.cloudInk },
-    uDust:      { value: P.dust },
-    uDustScale: { value: P.dustScale },
     uFogRoll:  { value: P.fogRoll },
     uFogStart: { value: P.fogStart },
     uFogDepth: { value: P.fogDepth },
@@ -3158,6 +3239,8 @@ renderer.setAnimationLoop(() => {
   treeStats.popM.uniforms.uTime.value = tNow;
   for (let i = 0; i < SMOKE_MATS.length; i++) SMOKE_MATS[i].uniforms.uTime.value = tNow;
   for (let i = 0; i < PIG_MATS.length; i++) PIG_MATS[i].uniforms.uTime.value = tNow;
+  ashMat.uniforms.uTime.value = tNow;
+  ashMat.uniforms.uCamPos.value.copy(camera.position);
   camera.getWorldDirection(_fwd);
   compMat.uniforms.uCamFwd.value.copy(_fwd);
   _right.crossVectors(_fwd, camera.up).normalize();
