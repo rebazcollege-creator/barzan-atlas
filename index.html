@@ -112,9 +112,9 @@ const P = {
   inkDepth: 0.58,       // the wash, at ink depth
   wash: 1.00,           // master strength of the colour; per-class restraint lives in PIG
   inkCeiling: 0.80,    // the darkest mark on the sheet — never solid ink
-  ashInk:    0.46,
+  ashInk:    0.60,
   birdInk:   0.85,   // the gulls: two strokes, a shade firmer than the ash   // weight of a single ash flake's ink
-  cloudInk:  0.46,   // weight of the drawn cloud line work in the sky
+  cloudInk:  0.62,   // weight of the drawn cloud line work in the sky
   fogRoll:   0.36,   // how far the drifting edge wanders from a plain circle
   fogStart:  0.13,   // only a small lens at the centre stays completely clear
   fogDepth:  0.84,   // dense: the corners go almost to bare paper
@@ -2326,7 +2326,7 @@ function placeAsh() {
     base[i * 3 + 2] = (r() - 0.5) * BOX;
     seed[i] = r();
     // a wide spread of sizes: the big flakes read as near, the small ones as far off
-    size[i] = 0.028 + Math.pow(r(), 2.8) * 0.235;
+    size[i] = 0.100 + Math.pow(r(), 2.3) * 0.620;
   }
   const quad = new THREE.PlaneGeometry(1, 1);
   const g = new THREE.InstancedBufferGeometry();
@@ -2341,21 +2341,26 @@ function placeAsh() {
 
   const mat = new THREE.ShaderMaterial({
     vertexShader: /* glsl */`
-      uniform float uTime; uniform vec3 uCamPos; uniform float uBox;
+      uniform float uTime; uniform vec3 uCamPos; uniform float uBox; uniform float uFollow;
       attribute vec3 aBase; attribute float aSeed; attribute float aSize;
       varying vec2 vUv; varying float vSeed; varying float vDepth; varying float vNear;
       void main() {
-        vec3 p = aBase;
+        // THE FIELD IS TOWED. Almost none of the speed you saw was the ash: the
+        // camera orbits at roughly 18 m/s, so parallax alone sweeps a flake 15 m away
+        // clean across the frame in under a second, whatever the flake itself is doing.
+        // The field now rides WITH the camera and keeps only a fraction of the
+        // parallax, so the volume still reads as three-dimensional but nothing streaks.
+        vec3 p = aBase + uCamPos * uFollow;
         // every flake carries its OWN heading and creeps along it, so the field wanders
         // in all directions rather than streaming one way across the frame
         float hd = fract(aSeed * 13.77) * 6.2832;
-        float sp = 0.10 + fract(aSeed * 29.3) * 0.30;
+        float sp = 0.05 + fract(aSeed * 29.3) * 0.15;
         p.xz += vec2(cos(hd), sin(hd)) * uTime * sp;
         // a slow lift, different for each, with a gentle wander on top
-        p.y += uTime * (0.05 + fract(aSeed * 7.13) * 0.22)
-             + sin(uTime * 0.11 + aSeed * 5.0) * 0.9;
-        p.x += sin(uTime * 0.085 + aSeed * 41.0) * 2.4;
-        p.z += cos(uTime * 0.071 + aSeed * 23.0) * 2.4;
+        p.y += uTime * (0.025 + fract(aSeed * 7.13) * 0.11)
+             + sin(uTime * 0.062 + aSeed * 5.0) * 0.75;
+        p.x += sin(uTime * 0.048 + aSeed * 41.0) * 2.0;
+        p.z += cos(uTime * 0.041 + aSeed * 23.0) * 2.0;
         // wrap the whole field into a box centred on the camera, so the drift is
         // endless and you are always standing inside it
         vec3 rel = mod(p - uCamPos + uBox * 0.5, uBox) - uBox * 0.5;
@@ -2363,11 +2368,11 @@ function placeAsh() {
         vDepth = -mv.z;
         vNear = clamp(1.0 - vDepth / (uBox * 0.55), 0.0, 1.0);
         // tumble: a flake of paper turns over as it goes
-        float rot = uTime * (0.10 + fract(aSeed * 5.77) * 0.42) + aSeed * 37.0;
+        float rot = uTime * (0.045 + fract(aSeed * 5.77) * 0.185) + aSeed * 37.0;
         float cr = cos(rot), sr = sin(rot);
         vec2 q = vec2(position.x * cr - position.y * sr, position.x * sr + position.y * cr);
         // and it foreshortens as it turns edge-on, which is what makes ash flicker
-        q.y *= 0.38 + 0.62 * abs(sin(uTime * (0.16 + fract(aSeed * 3.1) * 0.35) + aSeed * 11.0));
+        q.y *= 0.38 + 0.62 * abs(sin(uTime * (0.075 + fract(aSeed * 3.1) * 0.16) + aSeed * 11.0));
         mv.xy += q * aSize;
         vUv = uv; vSeed = aSeed;
         gl_Position = projectionMatrix * mv;
@@ -2398,17 +2403,18 @@ function placeAsh() {
         // one half catches what light there is, the other is the charred side
         float lit = 0.40 + 0.60 * smoothstep(-0.26, 0.26,
                      d.x * cos(vSeed * 9.0) + d.y * sin(vSeed * 9.0));
-        float ink = flake * lit * uInk * (0.55 + 0.45 * vNear);
-        // keep them off the glass: nothing inside 4.5 m, nothing at full strength
-        // inside 11 m, so no flake ever looms across the frame
-        ink *= smoothstep(4.5, 11.0, vDepth);
+        float ink = flake * lit * uInk * (0.70 + 0.30 * vNear);
+        // HELD BACK. Nothing at all inside 28 m and nothing at full weight inside 55,
+        // so the whole field sits at a middle distance: no flake is ever near enough
+        // to loom, and none is near enough for parallax to whip it past.
+        ink *= smoothstep(28.0, 55.0, vDepth);
         float depth = (1.0 - clamp(vDepth * uDepthScale, 0.0, 1.0)) * min(1.0, ink * 7.0);
         gl_FragColor = vec4(0.0, ink, depth, 0.0);
       }`,
     uniforms: {
       uTime: { value: 0 }, uCamPos: { value: new THREE.Vector3() },
       uBox: { value: BOX }, uDepthScale: { value: P.depthScale },
-      uInk: { value: P.ashInk }
+      uFollow: { value: 0.94 }, uInk: { value: P.ashInk }
     },
     side: THREE.DoubleSide,
     blending: THREE.CustomBlending,
@@ -2430,7 +2436,7 @@ const ashMat = placeAsh();
    nothing more. Same 3D treatment as the flakes, so they carry real depth — but far
    fewer, far bigger and much further out, and they beat their wings as they cross. */
 function placeBirds() {
-  const N = 34, BOX = 900;
+  const N = 46, BOX = 900;
   const base = new Float32Array(N * 3), seed = new Float32Array(N);
   const r = mulberry32(1177);
   for (let i = 0; i < N; i++) {
@@ -2450,15 +2456,18 @@ function placeBirds() {
   g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
   const mat = new THREE.ShaderMaterial({
     vertexShader: `
-      uniform float uTime; uniform vec3 uCamPos; uniform float uBox; uniform float uSize;
+      uniform float uTime; uniform vec3 uCamPos; uniform float uBox; uniform float uSize; uniform float uFollow;
       attribute vec3 aBase; attribute float aSeed;
       varying vec2 vUv; varying float vSeed; varying float vDepth;
       void main() {
         // each bird holds a heading and slides along it, wrapping in a box about the
         // camera so there is always a few of them somewhere in the sky
         float hd = aSeed * 6.2832;
-        vec3 p = aBase + vec3(cos(hd), 0.0, sin(hd)) * uTime * (6.0 + fract(aSeed * 7.7) * 7.0);
-        p.y += sin(uTime * 0.30 + aSeed * 19.0) * 7.0;
+        // towed with the camera like the ash, for the same reason: at this orbit speed
+        // parallax, not the bird, was doing the flying
+        vec3 p = aBase + uCamPos * uFollow
+               + vec3(cos(hd), 0.0, sin(hd)) * uTime * (3.6 + fract(aSeed * 7.7) * 4.2);
+        p.y += sin(uTime * 0.15 + aSeed * 19.0) * 6.0;
         vec3 rel = mod(p - uCamPos + uBox * 0.5, uBox) - uBox * 0.5;
         vec4 mv = viewMatrix * vec4(uCamPos + rel, 1.0);
         vDepth = -mv.z;
@@ -2472,19 +2481,22 @@ function placeBirds() {
       void main() {
         vec2 d = vUv - 0.5;
         // two strokes meeting at the body, opening and closing on the wingbeat
-        float beat = sin(uTime * (5.5 + fract(vSeed * 4.3) * 4.0) + vSeed * 22.0) * 0.5 + 0.5;
+        float beat = sin(uTime * (3.2 + fract(vSeed * 4.3) * 2.4) + vSeed * 22.0) * 0.5 + 0.5;
         float rise = 0.16 + beat * 0.62;
         float wing = abs(d.y + 0.06 - abs(d.x) * rise);
         float ink = smoothstep(0.035, 0.006, wing) * step(abs(d.x), 0.44)
                   * smoothstep(0.46, 0.30, abs(d.x) - 0.02);
         if (ink < 0.02) discard;
         ink *= uInk;
+        // a gull is drawn several metres across, so it must stay well out: nothing
+        // inside 180 m, nothing at full weight inside 360
+        ink *= smoothstep(180.0, 360.0, vDepth);
         float depth = (1.0 - clamp(vDepth * uDepthScale, 0.0, 1.0)) * min(1.0, ink * 7.0);
         gl_FragColor = vec4(0.0, ink, depth, 0.0);
       }`,
     uniforms: {
       uTime: { value: 0 }, uCamPos: { value: new THREE.Vector3() },
-      uBox: { value: BOX }, uSize: { value: 5.5 },
+      uBox: { value: BOX }, uSize: { value: 5.5 }, uFollow: { value: 0.80 },
       uDepthScale: { value: P.depthScale }, uInk: { value: P.birdInk }
     },
     side: THREE.DoubleSide,
@@ -3123,12 +3135,12 @@ const COMP_FRAG = /* glsl */`
     // the sky is bare paper; the drawing sits on it
     color = mix(uPaperColor, color, smoothstep(0.01, 0.22, data.b));
 
-    // ---- CLOUD: DRAWN BANKS, HATCHED ALONG THE FORM ---------------------------
-    // An engraved sky is a few gathered banks of stroke on a mostly bare sheet, and
-    // every stroke follows the roll of the cloud it is describing. Two things had to
-    // be true for it to stop reading as ruled paper: the strokes must CURVE with the
-    // form, and they must END. Both are handled below. The whole field is anchored to
-    // a plane in world space, so it stays put in the sky as the camera turns.
+    // ---- CLOUD: GRAIN, NOT LINE ------------------------------------------------
+    // Every ruled version of this read as notebook paper, because any set of repeated
+    // parallel strokes does. So there is no stroke here at all: the cloud is simply a
+    // place where more of the paper's own tooth has taken ink. It has no silhouette —
+    // it only thickens and thins — so every edge is a fade into haze. The FORM is
+    // anchored to a plane in world space and stays put in the sky as the camera turns.
     float isSky = 1.0 - smoothstep(0.01, 0.22, data.b);
     if (isSky > 0.003 && uCloudInk > 0.0) {
       float aspect2 = resolution.x / resolution.y;
@@ -3138,33 +3150,25 @@ const COMP_FRAG = /* glsl */`
       if (rd.y > 0.012) {
         vec2 cuv = rd.xz / (rd.y + 0.34);
         // THE FORMS. Stretched wide and flattened in depth, because cloud banks are
-        // long and low, never round. Domain-warped first so the silhouette has lobes
-        // and inlets instead of the soft oval a plain noise threshold always gives.
-        // The threshold is high on purpose: most of the sheet must stay bare paper.
+        // long and low, never round. Domain-warped first so the shape has lobes and
+        // inlets instead of the soft oval a plain noise threshold always gives.
         vec2 q = vec2(cuv.x * 1.50, cuv.y * 2.20);
         vec2 wq = vec2(vnoiseC(q * 1.9 + 2.1), vnoiseC(q * 1.9 + 9.4)) - 0.5;
         vec2 mq = q + wq * 0.55;
         float m1 = vnoiseC(mq + 4.2) * 0.62 + vnoiseC(mq * 2.4 + 13.1) * 0.38;
-        float mass = smoothstep(0.54, 0.72, m1);
-        // THE RULING. Ruling on elevation alone is what made this read as a ruled
-        // notebook: every stroke ran dead level, full width, edge to edge. An engraver
-        // does the opposite — the burin follows the roll of the form, so the strokes
-        // are iso-lines of a WARPED field, and they bend, gather and splay with the
-        // cloud. Amplitude is in whole line-spacings: seven of them on the slow octave
-        // is enough to bow a stroke right across its neighbours.
-        float roll = (vnoiseC(cuv * 0.9 + 17.3) - 0.5) * 7.0
-                   + (vnoiseC(cuv * 2.7 + 31.9) - 0.5) * 2.2;
-        float sy = rd.y * 150.0 + roll;
-        float fy = floor(sy);
-        // no two strokes in a drawn sky carry the same charge, and none of them runs
-        // the whole way: the hand lifts, the line breaks and tapers back to paper.
-        float lw  = 0.42 + 0.58 * vnoiseC(vec2(fy * 0.37, 11.7));
-        float brk = smoothstep(0.32, 0.60, vnoiseC(vec2(cuv.x * 3.6 + cuv.y * 0.6, fy * 0.61 + 3.3)));
-        // thin strokes with paper between them, thinning further toward the edge of
-        // the form so the cloud dissolves rather than ending on a boundary
-        float wdt = 0.16 + 0.30 * mass;
-        float line = 1.0 - smoothstep(0.0, wdt, abs(fract(sy) - 0.5) * 2.0);
-        float ink2 = mass * line * lw * brk;
+        // a deliberately WIDE threshold. Narrow it and the bank acquires an outline and
+        // starts reading as a distant mountain; this wide it has no edge anywhere, only
+        // a gradient, which is the whole point.
+        float mass = smoothstep(0.44, 0.86, m1);
+        // and it is never even within itself — it gathers and thins
+        mass *= 0.42 + 0.58 * vnoiseC(cuv * 3.1 + 7.7);
+        // THE TONE. Keyed to the PIXEL, not to the sky, exactly like the paper tooth
+        // further down: the sheet's grain belongs to the sheet. The cloud is where more
+        // of that grain has taken ink, so it can never separate from the paper it is
+        // drawn on. A whisper of flat tone under the speckle keeps it a haze and not a
+        // spatter.
+        float ct = vnoiseC(px / 2.3) * 0.55 + vnoiseC(px / 4.9 + 12.3) * 0.45;
+        float ink2 = mass * (0.10 + 0.90 * smoothstep(0.54, 0.94, ct));
         ink2 *= smoothstep(0.012, 0.055, rd.y) * (1.0 - smoothstep(0.42, 0.90, rd.y));
         color = mix(color, uPencilColor, clamp(ink2, 0.0, 1.0) * uCloudInk * isSky);
       }
