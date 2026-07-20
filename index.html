@@ -94,14 +94,18 @@ function mulberry32(a) {
 const P = {
   paper:  [0.973, 0.963, 0.936],   // #f8f6ef — a much whiter, lighter sheet
   pencil: [0.44, 0.41, 0.35],      // paler grey-brown -> Chartogne's faded pencil
-  lightDir: new THREE.Vector3(-0.86, 0.155, 0.49).normalize(),  // 9 deg: the sun is barely up
+  lightDir: new THREE.Vector3(-0.87, 0.098, 0.485).normalize(), // 5.6 deg: the disc is only just clear of the ridge
   // ---- DAWN ----------------------------------------------------------------------
   // Painted in the plate's own register, not photographed. A tinted engraving does its
   // dawn with a warm wash along the horizon graduating to cool grey overhead, a pool of
   // low light where the subject is, and haze everywhere else. That is exactly the
   // picture asked for, and it is the one that does not break the paper.
-  skyLow:   [0.965, 0.792, 0.478],   // #f6ca7a  real gold on the horizon
-  skyRose:  [0.933, 0.780, 0.639],   // #eec7a3  the band just above it
+  skyEmber: [0.949, 0.588, 0.318],   // #f29651  hottest, right at the ridgeline
+  skyLow:   [0.973, 0.769, 0.408],   // #f8c468  gold
+  skyRose:  [0.937, 0.749, 0.612],   // #efbf9c  the rose band above it
+  cloudLit: [0.996, 0.847, 0.596],   // streak cloud catching the sun
+  cloudDim: [0.804, 0.706, 0.678],   // and the same cloud in its own shadow
+  rayLand:  0.11,                    // how far the shafts carry across the ground
   skyMid:   [0.914, 0.878, 0.808],   // #e9e0ce
   skyHigh:  [0.729, 0.784, 0.827],   // #bac8d3  cool blue-grey overhead
   sunGlow:  [1.000, 0.949, 0.796],   // #fff2cb the bloom
@@ -2808,7 +2812,9 @@ const COMP_FRAG = /* glsl */`
   uniform float uNoiseStrength;
   uniform float uPaperStrength;
   uniform float uInkCeiling;
-  uniform vec3 uSkyLow; uniform vec3 uSkyRose; uniform vec3 uSkyMid; uniform vec3 uSkyHigh;
+  uniform vec3 uSkyEmber; uniform vec3 uSkyLow; uniform vec3 uSkySRose;
+  uniform vec3 uSkyMid; uniform vec3 uSkyHigh;
+  uniform vec3 uCloudLit; uniform vec3 uCloudDim; uniform float uRayLand;
   uniform vec3 uSunGlow; uniform vec3 uSunDisc;
   uniform float uRayGain; uniform float uSunVis;
   uniform vec2 uSunScreen;     // where the sun sits on screen
@@ -2934,9 +2940,16 @@ const COMP_FRAG = /* glsl */`
     vec3 sky = uPaperColor;
     if (uDawn > 0.001) {
       float h = clamp(uv.y, 0.0, 1.0);
-      sky = mix(uSkyLow, uSkyRose, smoothstep(0.00, 0.30, h));
-      sky = mix(sky, uSkyMid,  smoothstep(0.26, 0.60, h));
-      sky = mix(sky, uSkyHigh, smoothstep(0.55, 1.0, h));
+      sky = mix(uSkyEmber, uSkyLow, smoothstep(0.00, 0.16, h));   // ember at the ridge
+      sky = mix(sky, uSkySRose, smoothstep(0.12, 0.34, h));
+      sky = mix(sky, uSkyMid,   smoothstep(0.30, 0.62, h));
+      sky = mix(sky, uSkyHigh,  smoothstep(0.56, 1.0, h));
+      // streak cloud: noise stretched hard along the horizon, lit underneath by the
+      // low sun and dim on top, which is the whole reason a dawn sky has structure
+      float cl = vnoiseC(vec2(px.x / 340.0, px.y / 34.0)) * 0.62
+               + vnoiseC(vec2(px.x / 121.0, px.y / 17.0) + 7.3) * 0.38;
+      float band = smoothstep(0.46, 0.78, cl) * smoothstep(0.94, 0.30, h);
+      sky = mix(sky, mix(uCloudDim, uCloudLit, smoothstep(0.30, 0.02, h)), band * 0.55);
       vec2 ar = vec2(resolution.x / resolution.y, 1.0);
       vec2 dsun = (uv - uSunScreen) * ar;
       float sd = length(dsun);
@@ -2964,6 +2977,14 @@ const COMP_FRAG = /* glsl */`
       // ONLY on the land. Letting it touch the sky turned the pool into a soft blob
       // hanging in the air instead of light lying on the ground.
       float onLand = smoothstep(0.01, 0.22, data.b);
+      // the shafts do not stop at the horizon: the same rays fall across the valley
+      vec2 arL = vec2(resolution.x / resolution.y, 1.0);
+      vec2 dL = (uv - uSunScreen) * arL;
+      float aL = atan(dL.y, dL.x), sdL = length(dL);
+      float shaft = (pow(sin(aL * 23.0) * 0.5 + 0.5, 4.0) * 0.62
+                   + pow(sin(aL * 9.0 + 1.7) * 0.5 + 0.5, 3.0) * 0.38)
+                   * exp(-sdL * 0.95) * uRayLand * uSunVis * onLand * uDawn;
+      color += (uSunGlow - vec3(0.55)) * shaft;
       color *= mix(vec3(1.0), mix(vec3(0.949, 0.963, 1.012),
                                   vec3(1.0) + (uSunGlow - vec3(0.86)) * uPoolWarm, pool),
                    uDawn * onLand);
@@ -3025,7 +3046,11 @@ const compMat = new THREE.ShaderMaterial({
     uPaperStrength: { value: P.paperStrength },
     uInkCeiling: { value: P.inkCeiling },
     uSkyLow:  { value: new THREE.Vector3(...P.skyLow) },
-    uSkyRose: { value: new THREE.Vector3(...P.skyRose) },
+    uSkySRose: { value: new THREE.Vector3(...P.skyRose) },
+    uSkyEmber: { value: new THREE.Vector3(...P.skyEmber) },
+    uCloudLit: { value: new THREE.Vector3(...P.cloudLit) },
+    uCloudDim: { value: new THREE.Vector3(...P.cloudDim) },
+    uRayLand:  { value: P.rayLand },
     uSunDisc: { value: new THREE.Vector3(...P.sunDisc) },
     uRayGain: { value: P.rayGain },
     uSunVis:  { value: 1 },
