@@ -100,10 +100,13 @@ const P = {
   // dawn with a warm wash along the horizon graduating to cool grey overhead, a pool of
   // low light where the subject is, and haze everywhere else. That is exactly the
   // picture asked for, and it is the one that does not break the paper.
-  skyLow:   [0.937, 0.855, 0.706],   // #efdab4  gold along the horizon
-  skyMid:   [0.949, 0.918, 0.851],   // #f2ead9
-  skyHigh:  [0.847, 0.867, 0.882],   // #d8dde1  cool, overhead
-  sunGlow:  [0.976, 0.910, 0.780],   // the disc's bloom
+  skyLow:   [0.965, 0.792, 0.478],   // #f6ca7a  real gold on the horizon
+  skyRose:  [0.933, 0.780, 0.639],   // #eec7a3  the band just above it
+  skyMid:   [0.914, 0.878, 0.808],   // #e9e0ce
+  skyHigh:  [0.729, 0.784, 0.827],   // #bac8d3  cool blue-grey overhead
+  sunGlow:  [1.000, 0.949, 0.796],   // #fff2cb the bloom
+  sunDisc:  [1.000, 0.980, 0.886],   // the disc itself
+  rayGain:  0.16,          // the engraver's sunburst: fine lines radiating from the sun
   sunTint:  [1.075, 0.995, 0.870],   // what the low sun does to a lit face
   shadeTint:[0.930, 0.955, 1.020],   // and what the sky alone does to a shaded one
   poolWarm: 0.52,          // strength of the light pool sitting on the village
@@ -2805,7 +2808,9 @@ const COMP_FRAG = /* glsl */`
   uniform float uNoiseStrength;
   uniform float uPaperStrength;
   uniform float uInkCeiling;
-  uniform vec3 uSkyLow; uniform vec3 uSkyMid; uniform vec3 uSkyHigh; uniform vec3 uSunGlow;
+  uniform vec3 uSkyLow; uniform vec3 uSkyRose; uniform vec3 uSkyMid; uniform vec3 uSkyHigh;
+  uniform vec3 uSunGlow; uniform vec3 uSunDisc;
+  uniform float uRayGain; uniform float uSunVis;
   uniform vec2 uSunScreen;     // where the sun sits on screen
   uniform vec2 uTownScreen;    // and where Barzan does
   uniform float uPoolWarm; uniform float uPoolSize; uniform float uDawn;
@@ -2929,11 +2934,22 @@ const COMP_FRAG = /* glsl */`
     vec3 sky = uPaperColor;
     if (uDawn > 0.001) {
       float h = clamp(uv.y, 0.0, 1.0);
-      sky = mix(uSkyLow, uSkyMid, smoothstep(0.30, 0.62, h));
-      sky = mix(sky, uSkyHigh, smoothstep(0.58, 1.0, h));
-      float sd = distance(uv * vec2(resolution.x / resolution.y, 1.0),
-                          uSunScreen * vec2(resolution.x / resolution.y, 1.0));
-      sky = mix(sky, uSunGlow, exp(-sd * 5.2) * 0.85);
+      sky = mix(uSkyLow, uSkyRose, smoothstep(0.00, 0.30, h));
+      sky = mix(sky, uSkyMid,  smoothstep(0.26, 0.60, h));
+      sky = mix(sky, uSkyHigh, smoothstep(0.55, 1.0, h));
+      vec2 ar = vec2(resolution.x / resolution.y, 1.0);
+      vec2 dsun = (uv - uSunScreen) * ar;
+      float sd = length(dsun);
+      // THE SUNBURST. An engraver draws light as fine lines radiating from the source,
+      // and that is what makes this read as sunrise rather than as weather. Two sets at
+      // different counts so the spacing never looks machined.
+      float a = atan(dsun.y, dsun.x);
+      float r1 = pow(sin(a * 23.0) * 0.5 + 0.5, 4.0);
+      float r2 = pow(sin(a * 9.0 + 1.7) * 0.5 + 0.5, 3.0);
+      float rays = (r1 * 0.62 + r2 * 0.38) * exp(-sd * 1.45) * uRayGain * uSunVis;
+      sky += (uSunGlow - vec3(0.5)) * rays;
+      sky = mix(sky, uSunGlow, exp(-sd * 4.4) * 0.80 * uSunVis);      // the bloom
+      sky = mix(sky, uSunDisc, smoothstep(0.045, 0.026, sd) * uSunVis); // the disc
       sky = mix(uPaperColor, sky, uDawn);
     }
     color = mix(sky, color, smoothstep(0.01, 0.22, data.b));
@@ -3009,6 +3025,10 @@ const compMat = new THREE.ShaderMaterial({
     uPaperStrength: { value: P.paperStrength },
     uInkCeiling: { value: P.inkCeiling },
     uSkyLow:  { value: new THREE.Vector3(...P.skyLow) },
+    uSkyRose: { value: new THREE.Vector3(...P.skyRose) },
+    uSunDisc: { value: new THREE.Vector3(...P.sunDisc) },
+    uRayGain: { value: P.rayGain },
+    uSunVis:  { value: 1 },
     uSkyMid:  { value: new THREE.Vector3(...P.skyMid) },
     uSkyHigh: { value: new THREE.Vector3(...P.skyHigh) },
     uSunGlow: { value: new THREE.Vector3(...P.sunGlow) },
@@ -3107,7 +3127,7 @@ function keepAboveGround() {
   }
 }
 
-const _sunV = new THREE.Vector3(), _townV = new THREE.Vector3();
+const _sunV = new THREE.Vector3(), _townV = new THREE.Vector3(), _fwd = new THREE.Vector3();
 renderer.setAnimationLoop(() => {
   controls.update();
   keepAboveGround();
@@ -3119,8 +3139,12 @@ renderer.setAnimationLoop(() => {
   for (let i = 0; i < SMOKE_MATS.length; i++) SMOKE_MATS[i].uniforms.uTime.value = tNow;
   for (let i = 0; i < PIG_MATS.length; i++) PIG_MATS[i].uniforms.uTime.value = tNow;
   // where is the sun, and where is Barzan, on screen this frame?
-  _sunV.copy(P.lightDir).multiplyScalar(9000).add(controls.target).project(camera);
+  _sunV.copy(P.lightDir).multiplyScalar(9000).add(controls.target);
+  camera.getWorldDirection(_fwd);
+  const ahead = _sunV.clone().sub(camera.position).normalize().dot(_fwd);
+  _sunV.project(camera);
   compMat.uniforms.uSunScreen.value.set(_sunV.x * 0.5 + 0.5, _sunV.y * 0.5 + 0.5);
+  compMat.uniforms.uSunVis.value = Math.max(0, Math.min(1, (ahead - 0.05) * 4.0));
   _townV.set(CX, hTown + 30, CZ).project(camera);
   compMat.uniforms.uTownScreen.value.set(_townV.x * 0.5 + 0.5, _townV.y * 0.5 + 0.5);
   renderPigment();
