@@ -2326,7 +2326,7 @@ function placeAsh() {
     base[i * 3 + 2] = (r() - 0.5) * BOX;
     seed[i] = r();
     // a wide spread of sizes: the big flakes read as near, the small ones as far off
-    size[i] = 0.05 + Math.pow(r(), 2.2) * 0.62;
+    size[i] = 0.028 + Math.pow(r(), 2.8) * 0.235;
   }
   const quad = new THREE.PlaneGeometry(1, 1);
   const g = new THREE.InstancedBufferGeometry();
@@ -2346,10 +2346,16 @@ function placeAsh() {
       varying vec2 vUv; varying float vSeed; varying float vDepth; varying float vNear;
       void main() {
         vec3 p = aBase;
-        // ash rises, and wanders while it rises
-        p.y += uTime * (0.28 + fract(aSeed * 7.13) * 0.85);
-        p.x += sin(uTime * 0.31 + aSeed * 41.0) * 2.3 + sin(uTime * 0.11 + aSeed * 7.0) * 4.0;
-        p.z += cos(uTime * 0.26 + aSeed * 23.0) * 2.3 + cos(uTime * 0.09 + aSeed * 3.0) * 4.0;
+        // every flake carries its OWN heading and creeps along it, so the field wanders
+        // in all directions rather than streaming one way across the frame
+        float hd = fract(aSeed * 13.77) * 6.2832;
+        float sp = 0.10 + fract(aSeed * 29.3) * 0.30;
+        p.xz += vec2(cos(hd), sin(hd)) * uTime * sp;
+        // a slow lift, different for each, with a gentle wander on top
+        p.y += uTime * (0.05 + fract(aSeed * 7.13) * 0.22)
+             + sin(uTime * 0.11 + aSeed * 5.0) * 0.9;
+        p.x += sin(uTime * 0.085 + aSeed * 41.0) * 2.4;
+        p.z += cos(uTime * 0.071 + aSeed * 23.0) * 2.4;
         // wrap the whole field into a box centred on the camera, so the drift is
         // endless and you are always standing inside it
         vec3 rel = mod(p - uCamPos + uBox * 0.5, uBox) - uBox * 0.5;
@@ -2357,11 +2363,11 @@ function placeAsh() {
         vDepth = -mv.z;
         vNear = clamp(1.0 - vDepth / (uBox * 0.55), 0.0, 1.0);
         // tumble: a flake of paper turns over as it goes
-        float rot = uTime * (0.35 + fract(aSeed * 5.77) * 1.5) + aSeed * 37.0;
+        float rot = uTime * (0.10 + fract(aSeed * 5.77) * 0.42) + aSeed * 37.0;
         float cr = cos(rot), sr = sin(rot);
         vec2 q = vec2(position.x * cr - position.y * sr, position.x * sr + position.y * cr);
         // and it foreshortens as it turns edge-on, which is what makes ash flicker
-        q.y *= 0.35 + 0.65 * abs(sin(uTime * (0.5 + fract(aSeed * 3.1)) + aSeed * 11.0));
+        q.y *= 0.38 + 0.62 * abs(sin(uTime * (0.16 + fract(aSeed * 3.1) * 0.35) + aSeed * 11.0));
         mv.xy += q * aSize;
         vUv = uv; vSeed = aSeed;
         gl_Position = projectionMatrix * mv;
@@ -2393,6 +2399,9 @@ function placeAsh() {
         float lit = 0.40 + 0.60 * smoothstep(-0.26, 0.26,
                      d.x * cos(vSeed * 9.0) + d.y * sin(vSeed * 9.0));
         float ink = flake * lit * uInk * (0.55 + 0.45 * vNear);
+        // keep them off the glass: nothing inside 4.5 m, nothing at full strength
+        // inside 11 m, so no flake ever looms across the frame
+        ink *= smoothstep(4.5, 11.0, vDepth);
         float depth = (1.0 - clamp(vDepth * uDepthScale, 0.0, 1.0)) * min(1.0, ink * 7.0);
         gl_FragColor = vec4(0.0, ink, depth, 0.0);
       }`,
