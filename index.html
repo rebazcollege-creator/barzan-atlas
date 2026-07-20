@@ -1579,21 +1579,28 @@ function beast(p, x, z, ang, bw, bh, bd) {
 // A yard built on a real surveyed footprint: pen wall, shelter, and its flock already
 // inside the mesh. Kind 10 = sheep, kind 11 = cattle.
 function yardArchetype(cattle) {
-  const p = [], H = 1.95, T = 0.40, W = 9, D = 7, r = mulberry32(cattle ? 771 : 337);
-  p.push(boxPart(W, H, T, 0, H / 2, -D / 2, 0.70, 0, 1));
-  p.push(boxPart(T, H, D, -W / 2, H / 2, 0, 0.70, 0, 1));
-  p.push(boxPart(T, H, D,  W / 2, H / 2, 0, 0.70, 0, 1));
-  p.push(boxPart(W * 0.32, H, T, -W * 0.34, H / 2, D / 2, 0.70, 0, 1));
-  p.push(boxPart(W * 0.32, H, T,  W * 0.34, H / 2, D / 2, 0.70, 0, 1));
-  // the shelter along the back, and a fodder rick beside it
-  p.push(boxPart(5.4, cattle ? 3.0 : 2.5, 2.4, -1.2, cattle ? 1.5 : 1.25, -2.0, 0.78, 0, 3));
-  p.push(boxPart(5.9, 0.22, 2.9, -1.2, cattle ? 3.11 : 2.61, -1.9, 0.62));
-  p.push(boxPart(2.0, 1.9, 1.8, 3.0, 0.95, -2.1, 0.74));
-  // the flock, standing in the open half of the yard
-  const n = cattle ? 5 : 16;
+  // A farmyard has to hold its own beside a 6.6 m house or the eye never stops on it.
+  // So: a TALL open-fronted barn at the back, a walled yard at house-wall weight, and
+  // the flock spread across the whole yard rather than clumped in one corner.
+  const p = [], H = 2.3, T = 0.42, W = 9, D = 7, r = mulberry32(cattle ? 771 : 337);
+  p.push(boxPart(W, H, T, 0, H / 2, -D / 2, 0.80, 0, 1));
+  p.push(boxPart(T, H, D, -W / 2, H / 2, 0, 0.80, 0, 1));
+  p.push(boxPart(T, H, D,  W / 2, H / 2, 0, 0.80, 0, 1));
+  p.push(boxPart(W * 0.30, H, T, -W * 0.35, H / 2, D / 2, 0.80, 0, 1));
+  p.push(boxPart(W * 0.30, H, T,  W * 0.35, H / 2, D / 2, 0.80, 0, 1));
+  // the barn: open-fronted, and tall enough to read as a building
+  const BH = cattle ? 4.4 : 3.9;
+  p.push(boxPart(8.4, BH, 0.35, 0, BH / 2, -3.2, 0.80, 0, 3));           // back wall
+  p.push(boxPart(0.35, BH, 2.6, -4.0, BH / 2, -2.0, 0.80, 0, 3));        // side walls
+  p.push(boxPart(0.35, BH, 2.6,  4.0, BH / 2, -2.0, 0.80, 0, 3));
+  p.push(boxPart(9.0, 0.34, 3.4, 0, BH + 0.17, -1.9, 0.62));             // the roof
+  p.push(boxPart(1.9, 2.1, 1.8, 3.1, 1.05, 1.9, 0.74));                  // fodder rick
+  p.push(boxPart(2.2, 0.42, 0.55, -2.6, 0.21, 2.4, 0.56));               // trough
+  // the flock, spread right across the open yard
+  const n = cattle ? 9 : 26;
   for (let i = 0; i < n; i++)
-    beast(p, (r() - 0.5) * (W - 2.4), (r() - 0.5) * 2.8 + 1.5, r() * Math.PI * 2,
-          cattle ? 1.02 : 0.70, cattle ? 1.80 : 1.10, cattle ? 2.60 : 1.65);
+    beast(p, (r() - 0.5) * (W - 1.8), (r() - 0.5) * 4.6 + 0.9, r() * Math.PI * 2,
+          cattle ? 1.02 : 0.72, cattle ? 1.85 : 1.15, cattle ? 2.60 : 1.70);
   return mergeGeometries(p);
 }
 
