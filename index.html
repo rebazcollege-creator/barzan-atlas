@@ -2407,12 +2407,16 @@ function placePaddocks() {
   const parts = [], stock = [];
   fields.forEach(g => {
     const ca = Math.cos(g.ang), sa = Math.sin(g.ang);
-    // world position of a point given in the field's own frame
-    const W2 = (lx, lz) => [g.x + lx * ca - lz * sa, g.y + lx * sa + lz * ca];
+    // The field's own frame, expressed so that it agrees with geometry.rotateY(ang).
+    // Scene z is NEGATIVE northing, which is a reflection, so a world-space rotation
+    // and a geometry rotation are NOT the same transform — mixing them put every fence
+    // in a mirrored frame from its own animals. One mapping, used by both:
+    //   local (lx, lz)  ->  scene (lx*cos + lz*sin, -lx*sin + lz*cos)
+    const W2 = (lx, lz) => [g.x + lx * ca + lz * sa, g.y + lx * sa - lz * ca];
     const wall = (lx, lz, w, d) => {
       const [px, py] = W2(lx, lz);
       const bx = boxPart(w, 1.15, d, 0, 0.575, 0, 0.66, 0, 1);
-      bx.rotateY(-g.ang);
+      bx.rotateY(g.ang);
       bx.translate(px, sampleH(px, py) - 0.2, -py);
       parts.push(bx);
     };
@@ -2423,10 +2427,10 @@ function placePaddocks() {
     // a field shelter in one corner, small against the size of the field
     const [sx2, sy2] = W2(g.hw * 0.62, -g.hd * 0.66);
     const sh = boxPart(7.0, 2.9, 4.0, 0, 1.45, 0, 0.78, 0, 3);
-    sh.rotateY(-g.ang); sh.translate(sx2, sampleH(sx2, sy2) - 0.2, -sy2);
+    sh.rotateY(g.ang); sh.translate(sx2, sampleH(sx2, sy2) - 0.2, -sy2);
     parts.push(sh);
     const rf = boxPart(7.6, 0.26, 4.6, 0, 3.03, 0, 0.62);
-    rf.rotateY(-g.ang); rf.translate(sx2, sampleH(sx2, sy2) - 0.2, -sy2);
+    rf.rotateY(g.ang); rf.translate(sx2, sampleH(sx2, sy2) - 0.2, -sy2);
     parts.push(rf);
     // the herd, grazing loose over the whole field
     const n = g.cattle ? 9 + Math.floor(rng() * 8) : 22 + Math.floor(rng() * 20);
