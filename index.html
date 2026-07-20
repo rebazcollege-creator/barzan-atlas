@@ -2386,7 +2386,7 @@ function placePaddocks() {
   const fields = [];
   for (let t = 0; t < 120000 && fields.length < 58; t++) {
     const b = P[(rng() * P.length) | 0];
-    const a2 = rng() * Math.PI * 2, rad = 70 + rng() * 130;
+    const a2 = rng() * Math.PI * 2, rad = 52 + rng() * 78;
     const wx = b[0] + Math.cos(a2) * rad, wy = b[1] + Math.sin(a2) * rad;
     if (Math.abs(wx - CX) > SPAN * 0.44 || Math.abs(wy + CZ) > SPAN * 0.44) continue;
     const ang = rng() * Math.PI;
@@ -2399,7 +2399,16 @@ function placePaddocks() {
       if (Math.abs(dx * ca + dy * sa) < hw + br + 7 && Math.abs(-dx * sa + dy * ca) < hd + br + 7) { clear = false; break; }
     }
     if (!clear) continue;
-    if (near(wx, wy, 260).length < 4) continue;           // still inside the settlement
+    // every corner inside the built-up envelope: this is what keeps a field in the
+    // white space between the houses instead of out on the drawn farm parcels
+    let housed = true;
+    for (const [sx3, sz3] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+      const cx3 = wx + sx3 * hw * ca + sz3 * hd * sa;
+      const cy3 = wy + sx3 * hw * sa - sz3 * hd * ca;
+      if (!near(cx3, cy3, 105).length) { housed = false; break; }
+    }
+    if (!housed) continue;
+    if (near(wx, wy, 200).length < 5) continue;           // well inside the settlement
     if (fields.some(g => (g.x - wx) ** 2 + (g.y - wy) ** 2 < (hw + g.hw + 12) ** 2)) continue;
     fields.push({ x: wx, y: wy, ang, hw, hd, cattle: rng() < 0.34 });
   }
@@ -2415,15 +2424,16 @@ function placePaddocks() {
     const W2 = (lx, lz) => [g.x + lx * ca + lz * sa, g.y + lx * sa - lz * ca];
     const wall = (lx, lz, w, d) => {
       const [px, py] = W2(lx, lz);
-      const bx = boxPart(w, 1.15, d, 0, 0.575, 0, 0.66, 0, 1);
+      const bx = boxPart(w, 1.30, d, 0, 0.65, 0, 0.72, 0, 1);
       bx.rotateY(g.ang);
       bx.translate(px, sampleH(px, py) - 0.2, -py);
       parts.push(bx);
     };
-    wall(0, -g.hd, g.hw * 2, 0.34);                       // the four sides
-    wall(0,  g.hd, g.hw * 2, 0.34);
-    wall(-g.hw, 0, 0.34, g.hd * 2);
-    wall( g.hw, 0, 0.34, g.hd * 2);
+    const T = 0.42;
+    wall(0, -g.hd, g.hw * 2 + T, T);                      // long sides run over the ends
+    wall(0,  g.hd, g.hw * 2 + T, T);
+    wall(-g.hw, 0, T, g.hd * 2 + T);                      // so all four corners close
+    wall( g.hw, 0, T, g.hd * 2 + T);
     // a field shelter in one corner, small against the size of the field
     const [sx2, sy2] = W2(g.hw * 0.62, -g.hd * 0.66);
     const sh = boxPart(7.0, 2.9, 4.0, 0, 1.45, 0, 0.78, 0, 3);
