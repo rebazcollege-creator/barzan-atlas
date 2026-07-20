@@ -2964,9 +2964,14 @@ const COMP_FRAG = /* glsl */`
       vec3 warm = mix(uSkyEmber, uSkyLow, smoothstep(0.000, 0.030, el));
       warm = mix(warm, uSkySRose, smoothstep(0.020, 0.085, el));
       warm = mix(warm, uSkyMid,   smoothstep(0.070, 0.230, el));
-      // streak cloud only inside the lit part of the sky, where it can catch the sun
-      float cl = vnoiseC(vec2(px.x / 340.0, px.y / 34.0)) * 0.62
-               + vnoiseC(vec2(px.x / 121.0, px.y / 17.0) + 7.3) * 0.38;
+      // Streak cloud, FIXED IN THE SKY. It was sampled on px — screen pixels — so it
+      // was painted on the glass and slid about as the camera turned. Sampling the view
+      // ray projected onto a cloud plane instead pins it to a direction: turn the camera
+      // and you move through the cloud, you do not drag it along. The projection also
+      // foreshortens the streaks toward the horizon on its own, which is what they do.
+      vec2 cuv = rd.xz / max(rd.y, 0.055);
+      float cl = vnoiseC(cuv * 0.42 + 3.1) * 0.62
+               + vnoiseC(cuv * 1.15 + 9.4) * 0.38;
       float band = smoothstep(0.46, 0.78, cl) * smoothstep(0.42, 0.02, el);
       warm = mix(warm, mix(uCloudDim, uCloudLit, smoothstep(0.09, 0.005, el)), band * 0.60);
 
