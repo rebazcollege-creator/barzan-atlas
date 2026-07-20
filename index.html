@@ -1742,8 +1742,8 @@ const feats = S.buildings.map(footprintFeatures)
 
 function placeHouses() {
   const mats = () => dataMaterial(0, { flat: 1 }); // tone rides in aTone; no ruled lines on buildings
-  const kinds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(houseArchetype);   // + two farmyards
-  const buckets = [[], [], [], [], [], [], [], [], [], [], [], []];   // one bucket per type
+  const kinds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(houseArchetype);   // ten building types
+  const buckets = [[], [], [], [], [], [], [], [], [], []];   // one bucket per type
   const rng = mulberry32(1926);
   feats.forEach(f => {
     // Weighted as the research describes the village: mostly the later concrete
@@ -1757,11 +1757,9 @@ function placeHouses() {
     const pick = rng();
     if (f.w < 8.0)            k = pick < 0.70 ? 8 : 6;            // byre, or a small spindar
     else if (f.w > 13.5) {
-      k = pick < 0.36 ? 9 : pick < 0.54 ? 2 : pick < 0.72 ? 3
-        : pick < 0.845 ? 6 : pick < 0.875 ? 7 : pick < 0.895 ? 4
-        : pick < 0.965 ? 10 : 11;
+      k = pick < 0.40 ? 9 : pick < 0.60 ? 2 : pick < 0.80 ? 3
+        : pick < 0.935 ? 6 : pick < 0.97 ? 7 : 4;
     }
-    else if (pick < 0.10)     k = 10;
     else if (pick < 0.22)     k = 9;
     else if (pick < 0.52)     k = 6;
     else if (pick < 0.66)     k = 0;
@@ -1785,7 +1783,7 @@ function placeHouses() {
       // 70-80 m2 actually rebuilt here, and stands INSIDE its plot pushed to the back,
       // leaving the yard between it and the lane. Only plots too small for a yard
       // still get a building stretched to the outline.
-      const yard = f.w > 10.5 && f.d > 8.5 && k !== 8 && k < 10;
+      const yard = f.w > 10.5 && f.d > 8.5 && k !== 8;
       // sized to land on the 70-80 m2 UN-Habitat actually rebuilt here, then clamped
       // so a house can never break out through its own wall on a shallow plot
       const sw = Math.min(0.95 + rng() * 0.30, (f.w - 1.0) / 9);
@@ -2363,133 +2361,102 @@ function placeMosque() {
   return m;
 }
 
-/* ---------- farmyards: sheep folds, cattle byres and coops ----------
-   The gaps between compounds are not empty ground in a working village — they are
-   where the animals are kept. Sites are found rather than scattered: a gap qualifies
-   only if no footprint stands within 16 m and at least four stand within 95 m, so a
-   fold can never appear out in the fields. */
-function placeFarmyards() {
-  const rng = mulberry32(8123);
-  const sites = [];
-  const B = feats.map(f => [f.x, f.y]);
-  const GC = 60, gi = new Map();
-  B.forEach(p => {
+/* ---------- grazing fields ----------
+   Large fenced paddocks standing in the OPEN GROUND between the house clusters, the
+   way the tree masses do — three to five times the footprint of a house, so they read
+   as fields rather than as another building. The stock grazes loose inside them.
+   Built as ONE merged mesh at world scale rather than instanced, because a paddock
+   varies in size and instancing would scale its fence thickness with it. */
+function placePaddocks() {
+  const rng = mulberry32(4471);
+  const P = feats.map(f => [f.x, f.y, Math.max(f.w, f.d) * 0.5]);
+  const GC = 80, gi = new Map();
+  P.forEach(p => {
     const k = Math.floor(p[0] / GC) + ',' + Math.floor(p[1] / GC);
     (gi.get(k) || gi.set(k, []).get(k)).push(p);
   });
-  const around = (wx, wy, r) => {
-    const ci = Math.floor(wx / GC), cj = Math.floor(wy / GC), rc = Math.ceil(r / GC);
-    let n = 0, min2 = 1e12;
+  const near = (wx, wy, r) => {
+    const ci = Math.floor(wx / GC), cj = Math.floor(wy / GC), rc = Math.ceil(r / GC), out = [];
     for (let i = ci - rc; i <= ci + rc; i++) for (let j = cj - rc; j <= cj + rc; j++) {
       const a = gi.get(i + ',' + j); if (!a) continue;
-      for (const p of a) {
-        const d2 = (p[0] - wx) ** 2 + (p[1] - wy) ** 2;
-        if (d2 < min2) min2 = d2;
-        if (d2 < r * r) n++;
-      }
+      for (const p of a) if ((p[0] - wx) ** 2 + (p[1] - wy) ** 2 < r * r) out.push(p);
     }
-    return [n, Math.sqrt(min2)];
+    return out;
   };
-  // Seed candidates FROM THE HOUSES, never from a uniform box over the frame. Sampling
-  // the box put the median yard 672 m from the centre, out in the sparse periphery,
-  // because that is where most of the AREA is — while the village the eye actually
-  // looks at is only ~350 m across. Probing a ring around a randomly chosen compound
-  // makes the yards follow the settlement's own density instead of the map's geometry.
-  for (let t = 0; t < 60000 && sites.length < 150; t++) {
-    const b = B[(rng() * B.length) | 0];
-    const a2 = rng() * Math.PI * 2, rad = 26 + rng() * 52;
+  const fields = [];
+  for (let t = 0; t < 120000 && fields.length < 58; t++) {
+    const b = P[(rng() * P.length) | 0];
+    const a2 = rng() * Math.PI * 2, rad = 70 + rng() * 130;
     const wx = b[0] + Math.cos(a2) * rad, wy = b[1] + Math.sin(a2) * rad;
-    if (Math.abs(wx - CX) > SPAN * 0.46 || Math.abs(wy + CZ) > SPAN * 0.46) continue;
-    const [n, near] = around(wx, wy, 150);
-    // 24 m clear of any compound so the pen stands in its own ground, but still
-    // inside the settlement: three houses within 150 m, and never more than 105 m
-    // from the nearest one, which is what keeps folds out of the open fields
-    if (n < 3 || near < 24 || near > 105) continue;
-    if (sites.some(p => (p[0] - wx) ** 2 + (p[1] - wy) ** 2 < 42 * 42)) continue;
-    if (Math.hypot(wx - MOSQUE.x, wy - MOSQUE.y) < 40) continue;
-    sites.push([wx, wy, rng() * Math.PI, rng()]);
+    if (Math.abs(wx - CX) > SPAN * 0.44 || Math.abs(wy + CZ) > SPAN * 0.44) continue;
+    const ang = rng() * Math.PI;
+    const hw = 19 + rng() * 15, hd = 12 + rng() * 9;      // 38-68 m by 24-42 m
+    const ca = Math.cos(ang), sa = Math.sin(ang);
+    // the whole rectangle has to be clear of buildings, not just its centre
+    let clear = true;
+    for (const [bx, by, br] of near(wx, wy, Math.hypot(hw, hd) + 40)) {
+      const dx = bx - wx, dy = by - wy;
+      if (Math.abs(dx * ca + dy * sa) < hw + br + 7 && Math.abs(-dx * sa + dy * ca) < hd + br + 7) { clear = false; break; }
+    }
+    if (!clear) continue;
+    if (near(wx, wy, 260).length < 4) continue;           // still inside the settlement
+    if (fields.some(g => (g.x - wx) ** 2 + (g.y - wy) ** 2 < (hw + g.hw + 12) ** 2)) continue;
+    fields.push({ x: wx, y: wy, ang, hw, hd, cattle: rng() < 0.34 });
   }
 
-  // three yard types, all built low so they never compete with a house
-  const pen = kind => {
-    const p = [], H = kind === 2 ? 1.5 : 1.95, T = 0.42, W = kind === 1 ? 15 : 13, D = 11;
-    p.push(boxPart(W, H, T, 0, H / 2, -D / 2, 0.68, 0, 1));
-    p.push(boxPart(T, H, D, -W / 2, H / 2, 0, 0.68, 0, 1));
-    p.push(boxPart(T, H, D,  W / 2, H / 2, 0, 0.68, 0, 1));
-    p.push(boxPart(W * 0.34, H, T, -W * 0.33, H / 2, D / 2, 0.68, 0, 1));
-    if (kind === 0) {                                   // sheep fold, lean-to along the back
-      p.push(boxPart(7.2, 2.9, 3.2, -0.8, 1.45, -2.8, 0.76, 0, 3));
-      p.push(boxPart(7.8, 0.22, 3.8, -0.8, 3.01, -2.6, 0.62));
-      p.push(boxPart(2.8, 2.3, 2.6, 3.6, 1.15, -3.0, 0.72));   // fodder rick
-      p.push(boxPart(2.4, 0.34, 0.5, 1.9, 0.17, 1.4, 0.40));      // trough
-    } else if (kind === 1) {                            // cattle byre, deeper shelter
-      p.push(boxPart(9.0, 3.4, 4.4, -1.6, 1.7, -2.2, 0.76, 0, 3));
-      p.push(boxPart(9.6, 0.24, 5.0, -1.6, 3.52, -2.0, 0.62));
-      p.push(boxPart(3.0, 0.4, 0.55, 2.6, 0.2, 1.2, 0.40));
-    } else {                                            // coop and a haystack
-      p.push(boxPart(3.6, 2.6, 2.8, -2.4, 1.3, -2.4, 0.74, 0, 2));
-      p.push(boxPart(4.0, 0.20, 3.2, -2.4, 2.7, -2.2, 0.60));
-      p.push(boxPart(3.2, 2.4, 2.9, 3.0, 1.2, -2.2, 0.72));
+  const parts = [], stock = [];
+  fields.forEach(g => {
+    const ca = Math.cos(g.ang), sa = Math.sin(g.ang);
+    // world position of a point given in the field's own frame
+    const W2 = (lx, lz) => [g.x + lx * ca - lz * sa, g.y + lx * sa + lz * ca];
+    const wall = (lx, lz, w, d) => {
+      const [px, py] = W2(lx, lz);
+      const bx = boxPart(w, 1.15, d, 0, 0.575, 0, 0.66, 0, 1);
+      bx.rotateY(-g.ang);
+      bx.translate(px, sampleH(px, py) - 0.2, -py);
+      parts.push(bx);
+    };
+    wall(0, -g.hd, g.hw * 2, 0.34);                       // the four sides
+    wall(0,  g.hd, g.hw * 2, 0.34);
+    wall(-g.hw, 0, 0.34, g.hd * 2);
+    wall( g.hw, 0, 0.34, g.hd * 2);
+    // a field shelter in one corner, small against the size of the field
+    const [sx2, sy2] = W2(g.hw * 0.62, -g.hd * 0.66);
+    const sh = boxPart(7.0, 2.9, 4.0, 0, 1.45, 0, 0.78, 0, 3);
+    sh.rotateY(-g.ang); sh.translate(sx2, sampleH(sx2, sy2) - 0.2, -sy2);
+    parts.push(sh);
+    const rf = boxPart(7.6, 0.26, 4.6, 0, 3.03, 0, 0.62);
+    rf.rotateY(-g.ang); rf.translate(sx2, sampleH(sx2, sy2) - 0.2, -sy2);
+    parts.push(rf);
+    // the herd, grazing loose over the whole field
+    const n = g.cattle ? 9 + Math.floor(rng() * 8) : 22 + Math.floor(rng() * 20);
+    for (let i = 0; i < n; i++) {
+      const [ax, ay] = W2((rng() - 0.5) * (g.hw * 2 - 7), (rng() - 0.5) * (g.hd * 2 - 7));
+      stock.push([ax, ay, rng() * Math.PI * 2, g.cattle ? 1 : 0]);
     }
-    return mergeGeometries(p);
-  };
-
-  const dummy = new THREE.Object3D();
-  const buckets = [[], [], []];
-  sites.forEach(s2 => buckets[s2[3] < 0.44 ? 0 : s2[3] < 0.72 ? 1 : 2].push(s2));
-  buckets.forEach((list, k) => {
-    if (!list.length) return;
-    const m = new THREE.InstancedMesh(pen(k), dataMaterial(0, { flat: 1 }), list.length);
-    list.forEach((s2, i) => {
-      dummy.position.set(s2[0], sampleH(s2[0], s2[1]) - 0.2, -s2[1]);
-      dummy.rotation.set(0, s2[2], 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      m.setMatrixAt(i, dummy.matrix);
-    });
-    m.frustumCulled = false;
+  });
+  if (parts.length) {
+    const m = new THREE.Mesh(mergeGeometries(parts), dataMaterial(0, { flat: 1 }));
     m.userData.pig = housePig;
     scene.add(m);
-  });
-
-  // the animals themselves. One box each — at this scale a sheep is a mark, not a
-  // model, and what reads is the SCATTER: a flock clusters, cattle stand apart.
-  const stock = [];
-  sites.forEach(([wx, wy, ang, r]) => {
-    const kind = r < 0.44 ? 0 : r < 0.72 ? 1 : 2;
-    const n = kind === 0 ? 20 + Math.floor(rng() * 14) : kind === 1 ? 5 + Math.floor(rng() * 5) : 0;
-    for (let i = 0; i < n; i++) {
-      // scene z is NEGATIVE northing, so a local (lx, lz) inside the pen lands at
-      // northing = wy + lx*sin - lz*cos. Both signs were inverted, which mirrored
-      // every animal to the far side of its own pen and left the folds standing empty.
-      const lx = (rng() - 0.5) * (kind === 1 ? 10.4 : 9.0), lz = -0.6 + rng() * 4.8;
-      stock.push([wx + lx * Math.cos(ang) + lz * Math.sin(ang),
-                  wy + lx * Math.sin(ang) - lz * Math.cos(ang),
-                  rng() * Math.PI * 2, kind]);
-    }
-  });
-  [[0, 0.78, 1.20, 1.85], [1, 1.18, 2.05, 3.05]].forEach(([kind, bw, bh, bd]) => {
+  }
+  const dummy = new THREE.Object3D();
+  [[0, 0.76, 1.18, 1.75], [1, 1.10, 1.95, 2.80]].forEach(([kind, bw, bh, bd]) => {
     const list = stock.filter(a => a[3] === kind);
     if (!list.length) return;
-    // SOLID, not shaded. An animal is 9 px long at village zoom; run through the flat
-    // shading path it inks at 0.23 on its shaded side and 0.00 in the sun, which is a
-    // grey speck on grey ground. The solid flag is the shader's existing channel for
-    // small marks that must simply be DARK — the same one the doors and windows use —
-    // and it lands a flat 0.78 whatever the light is doing. A flock then reads as a
-    // stipple of black dots, which is how a map draws livestock anyway.
     const g = mergeGeometries([
-      boxPart(bw, bh * 0.46, bd, 0, bh * 0.70, 0, 0.97, 1),                       // body
-      boxPart(bw * 0.70, bh * 0.32, bw * 0.85, 0, bh * 0.88, bd * 0.50, 0.99, 1), // head
-      boxPart(bw * 0.20, bh * 0.48, bw * 0.20, bw * 0.30, bh * 0.24,  bd * 0.32, 0.94, 1),
-      boxPart(bw * 0.20, bh * 0.48, bw * 0.20, -bw * 0.30, bh * 0.24, bd * 0.32, 0.94, 1),
-      boxPart(bw * 0.20, bh * 0.48, bw * 0.20, bw * 0.30, bh * 0.24, -bd * 0.32, 0.94, 1),
+      boxPart(bw, bh * 0.46, bd, 0, bh * 0.70, 0, 0.97, 1),
+      boxPart(bw * 0.70, bh * 0.32, bw * 0.85, 0, bh * 0.88, bd * 0.50, 0.99, 1),
+      boxPart(bw * 0.20, bh * 0.48, bw * 0.20,  bw * 0.30, bh * 0.24,  bd * 0.32, 0.94, 1),
+      boxPart(bw * 0.20, bh * 0.48, bw * 0.20, -bw * 0.30, bh * 0.24,  bd * 0.32, 0.94, 1),
+      boxPart(bw * 0.20, bh * 0.48, bw * 0.20,  bw * 0.30, bh * 0.24, -bd * 0.32, 0.94, 1),
       boxPart(bw * 0.20, bh * 0.48, bw * 0.20, -bw * 0.30, bh * 0.24, -bd * 0.32, 0.94, 1)
     ]);
     const m = new THREE.InstancedMesh(g, dataMaterial(0, { flat: 1 }), list.length);
     list.forEach((a, i) => {
-      dummy.position.set(a[0], sampleH(a[0], a[1]) - 0.1, -a[1]);
+      dummy.position.set(a[0], sampleH(a[0], a[1]) - 0.15, -a[1]);
       dummy.rotation.set(0, a[2], 0);
-      dummy.scale.set(1, 0.9 + rng() * 0.25, 1);
+      dummy.scale.set(1, 0.9 + rng() * 0.22, 1);
       dummy.updateMatrix();
       m.setMatrixAt(i, dummy.matrix);
     });
@@ -2497,12 +2464,12 @@ function placeFarmyards() {
     m.userData.pig = housePig;
     scene.add(m);
   });
-  return [sites.length, stock.length];
+  return [fields.length, stock.length];
 }
 
 placeHouses();
 placeMosque();
-const FARMS = placeFarmyards();
+const FARMS = placePaddocks();
 const treeStats = placeTrees();
 
 // NO settlement underwash (Atelier Review 11): the landuse-hull-shaped wash
