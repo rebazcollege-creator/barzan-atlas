@@ -2375,6 +2375,23 @@ function placePaddocks() {
     const k = Math.floor(p[0] / GC) + ',' + Math.floor(p[1] / GC);
     (gi.get(k) || gi.set(k, []).get(k)).push(p);
   });
+  // every road and track vertex, gridded — a field must never be laid across one
+  const RPT = [];
+  [S.roadsMajor, S.roadsMinor, S.tracks].forEach(set =>
+    set.forEach(l => l.forEach(p => RPT.push(p))));
+  const RG = new Map();
+  RPT.forEach(p => {
+    const k = Math.floor(p[0] / GC) + ',' + Math.floor(p[1] / GC);
+    (RG.get(k) || RG.set(k, []).get(k)).push(p);
+  });
+  const roadsNear = (wx, wy, r) => {
+    const ci = Math.floor(wx / GC), cj = Math.floor(wy / GC), rc = Math.ceil(r / GC), out = [];
+    for (let i = ci - rc; i <= ci + rc; i++) for (let j = cj - rc; j <= cj + rc; j++) {
+      const a = RG.get(i + ',' + j); if (!a) continue;
+      for (const p of a) out.push(p);
+    }
+    return out;
+  };
   const near = (wx, wy, r) => {
     const ci = Math.floor(wx / GC), cj = Math.floor(wy / GC), rc = Math.ceil(r / GC), out = [];
     for (let i = ci - rc; i <= ci + rc; i++) for (let j = cj - rc; j <= cj + rc; j++) {
@@ -2399,16 +2416,24 @@ function placePaddocks() {
       if (Math.abs(dx * ca + dy * sa) < hw + br + 7 && Math.abs(-dx * sa + dy * ca) < hd + br + 7) { clear = false; break; }
     }
     if (!clear) continue;
-    // every corner inside the built-up envelope: this is what keeps a field in the
-    // white space between the houses instead of out on the drawn farm parcels
+    // DENSE residential ground only. The drawn farm parcels sit where there are no
+    // houses, so a hard density floor is what keeps a field off them; and a field laid
+    // across a lane is simply wrong, so the rectangle is tested against every road and
+    // track vertex too.
+    if (near(wx, wy, 120).length < 8) continue;           // a dense pocket, not open land
     let housed = true;
     for (const [sx3, sz3] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
       const cx3 = wx + sx3 * hw * ca + sz3 * hd * sa;
       const cy3 = wy + sx3 * hw * sa - sz3 * hd * ca;
-      if (!near(cx3, cy3, 105).length) { housed = false; break; }
+      if (near(cx3, cy3, 62).length < 2) { housed = false; break; }
     }
     if (!housed) continue;
-    if (near(wx, wy, 200).length < 5) continue;           // well inside the settlement
+    let onRoad = false;
+    for (const p of roadsNear(wx, wy, Math.hypot(hw, hd) + 30)) {
+      const dx = p[0] - wx, dy = p[1] - wy;
+      if (Math.abs(dx * ca + dy * sa) < hw + 9 && Math.abs(dx * sa - dy * ca) < hd + 9) { onRoad = true; break; }
+    }
+    if (onRoad) continue;
     if (fields.some(g => (g.x - wx) ** 2 + (g.y - wy) ** 2 < (hw + g.hw + 12) ** 2)) continue;
     fields.push({ x: wx, y: wy, ang, hw, hd, cattle: rng() < 0.34 });
   }
@@ -2424,16 +2449,19 @@ function placePaddocks() {
     const W2 = (lx, lz) => [g.x + lx * ca + lz * sa, g.y + lx * sa - lz * ca];
     const wall = (lx, lz, w, d) => {
       const [px, py] = W2(lx, lz);
-      const bx = boxPart(w, 1.30, d, 0, 0.65, 0, 0.72, 0, 1);
+      const bx = boxPart(w, 1.30, d, 0, 0.65, 0, 0.38, 0, 1);
       bx.rotateY(g.ang);
       bx.translate(px, sampleH(px, py) - 0.2, -py);
       parts.push(bx);
     };
-    const T = 0.42;
-    wall(0, -g.hd, g.hw * 2 + T, T);                      // long sides run over the ends
+    // One ring, mitred: the long sides carry the full outer width and the short sides
+    // fit exactly between them, so every corner is flush and the four boxes read as a
+    // single rectangle instead of four sticks laid near each other.
+    const T = 0.45;
+    wall(0, -g.hd, g.hw * 2 + T, T);
     wall(0,  g.hd, g.hw * 2 + T, T);
-    wall(-g.hw, 0, T, g.hd * 2 + T);                      // so all four corners close
-    wall( g.hw, 0, T, g.hd * 2 + T);
+    wall(-g.hw, 0, T, g.hd * 2 - T);
+    wall( g.hw, 0, T, g.hd * 2 - T);
     // a field shelter in one corner, small against the size of the field
     const [sx2, sy2] = W2(g.hw * 0.62, -g.hd * 0.66);
     const sh = boxPart(7.0, 2.9, 4.0, 0, 1.45, 0, 0.78, 0, 3);
