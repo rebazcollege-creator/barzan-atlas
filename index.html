@@ -112,6 +112,7 @@ const P = {
   inkDepth: 0.58,       // the wash, at ink depth
   wash: 1.00,           // master strength of the colour; per-class restraint lives in PIG
   inkCeiling: 0.80,    // the darkest mark on the sheet — never solid ink
+  cloudInk:  0.40,   // weight of the drawn cloud line work in the sky
   fogRoll:   0.36,   // how far the drifting edge wanders from a plain circle
   fogStart:  0.13,   // only a small lens at the centre stays completely clear
   fogDepth:  0.84,   // dense: the corners go almost to bare paper
@@ -2228,8 +2229,11 @@ addSmoke();
 /* ---------- place labels: ink written on the map itself ---------- */
 
 function addLabels() {
-  S.places.forEach(p => {
-    const town = p.t === 'town';
+  // Barzan only, and standing over the village rather than engraved into the ground.
+  // The other villages were labelled on the plate in the Chartogne manner; they are
+  // named in the index rail along the foot instead, and the plate stays quiet.
+  S.places.filter(p => p.t === 'town').forEach(p => {
+    const town = true;
     const cw = 1024, ch = 256;
     const c = document.createElement('canvas');
     c.width = cw; c.height = ch;
@@ -2242,29 +2246,32 @@ function addLabels() {
     x.fillText(name, cw / 2, ch / 2);
     const tex = new THREE.CanvasTexture(c);
     const wPl = town ? 460 : 210, hPl = wPl * ch / cw;
-    const px0 = p.x, pz0 = -p.y + (town ? -300 : -60);
-    const lgeo = new THREE.PlaneGeometry(wPl, hPl, 32, 6).rotateX(-Math.PI / 2);
-    {
-      const pos = lgeo.attributes.position;
-      for (let i = 0; i < pos.count; i++) {
-        const wx2 = px0 + pos.getX(i), wz2 = pz0 + pos.getZ(i);
-        pos.setY(i, sampleH(wx2, -wz2) + 3.0);
-      }
-    }
+    const px0 = p.x, pz0 = -p.y;
+    // upright, not draped: one flat quad that is turned to face the camera in the
+    // vertex shader, floating above the roofs
+    const lgeo = new THREE.PlaneGeometry(wPl, hPl);
     const m = new THREE.Mesh(
       lgeo,
       new THREE.ShaderMaterial({
-        vertexShader: `varying vec2 vUv; varying vec3 vWp; void main(){ vUv = uv; vWp = (modelMatrix * vec4(position, 1.0)).xyz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        vertexShader: `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            // billboard: take the object's origin into view space and offset by the
+            // quad's own xy there, so the name always faces the reader whatever the
+            // camera does, while staying anchored over the village.
+            vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+            mv.xy += position.xy;
+            gl_Position = projectionMatrix * mv;
+          }`,
         fragmentShader: `
           uniform sampler2D tText;
           uniform float uStrength;
-          varying vec2 vUv;
-          varying vec3 vWp;
           uniform float uRedA;
+          varying vec2 vUv;
           void main() {
-            // map text is for reading from above; it fades at grazing views
-            float grz = normalize(cameraPosition - vWp).y;
-            float ink = texture2D(tText, vUv).r * uStrength * smoothstep(0.14, 0.34, grz);
+            // no grazing fade any more: it stands upright, so it reads from every angle
+            float ink = texture2D(tText, vUv).r * uStrength;
             gl_FragColor = vec4(0.0, ink, 0.0, uRedA * smoothstep(0.0, 0.12, ink));
           }
         `,
@@ -2277,7 +2284,10 @@ function addLabels() {
         transparent: true
       })
     );
-    m.position.set(px0, 0, pz0);
+    // floating above the roofs — high enough to clear them, low enough to still
+    // belong to the village rather than to the sky
+    m.position.set(px0, sampleH(px0, -pz0) + 105, pz0);
+    m.frustumCulled = false;
     scene.add(m);
   });
 }
@@ -2784,6 +2794,8 @@ const COMP_FRAG = /* glsl */`
   uniform vec3 uBlueInk;
   uniform float uVignetteStrength;
   uniform float uVignetteOffset;
+  uniform vec3 uCamFwd; uniform vec3 uCamRight; uniform vec3 uCamUp;
+  uniform float uTanHalf; uniform float uCloudInk;
   uniform float uFogRoll; uniform float uFogStart; uniform float uFogDepth;
   uniform float uNoiseStrength;
   uniform float uPaperStrength;
@@ -2901,7 +2913,37 @@ const COMP_FRAG = /* glsl */`
     vec3 color = mix(sheet, inkCol, cover);
 
     // far ridges dissolve into the air of the page
+    // the sky is bare paper; the drawing sits on it
     color = mix(uPaperColor, color, smoothstep(0.01, 0.22, data.b));
+
+    // ---- CLOUDS, DRAWN --------------------------------------------------------
+    // Not a wash: line work, in the same ink as everything else. A contour taken
+    // through a noise field gives closed looping outlines, which is exactly how an
+    // engraver draws a cloud — with a lighter echo inside it and a little hatching
+    // under the belly. Sampled on the view ray projected to a cloud plane, so they
+    // are fixed in the SKY: turn the camera and you move past them.
+    float isSky = 1.0 - smoothstep(0.01, 0.22, data.b);
+    if (isSky > 0.003 && uCloudInk > 0.0) {
+      float aspect2 = resolution.x / resolution.y;
+      vec3 rd = normalize(uCamFwd
+                        + uCamRight * ((uv.x - 0.5) * 2.0 * aspect2 * uTanHalf)
+                        + uCamUp    * ((uv.y - 0.5) * 2.0 * uTanHalf));
+      if (rd.y > 0.02) {
+        // A true cloud plane divides by rd.y and so explodes at the horizon — which is
+        // where nearly all the sky is in this framing, leaving every shape crushed into
+        // a thread. Softening the divisor keeps the clouds fixed to a direction while
+        // holding their size roughly even from the horizon to overhead.
+        vec2 cuv = rd.xz / (rd.y + 0.32);
+        float n = vnoiseC(cuv * 1.15 + 4.2) * 0.60 + vnoiseC(cuv * 3.10 + 13.1) * 0.40;
+        float outline = smoothstep(0.034, 0.0, abs(n - 0.545));
+        float echo    = smoothstep(0.020, 0.0, abs(n - 0.635));
+        float belly   = smoothstep(0.545, 0.60, n) * smoothstep(0.72, 0.60, n)
+                      * step(0.55, fract(cuv.y * 7.5 + n * 3.0));
+        float ink2 = outline * 0.62 + echo * 0.34 + belly * 0.30;
+        ink2 *= smoothstep(0.010, 0.060, rd.y) * smoothstep(1.05, 0.62, rd.y);
+        color = mix(color, uPencilColor, clamp(ink2, 0.0, 1.0) * uCloudInk * isSky);
+      }
+    }
 
     color += (random2d(uv * 100.0 + mod(uTime, 100.0)) - 0.5) * uNoiseStrength;
 
@@ -2965,6 +3007,11 @@ const compMat = new THREE.ShaderMaterial({
     uBlueInk: { value: new THREE.Vector3(0.196, 0.373, 0.494) },
     uVignetteStrength: { value: P.vignetteStrength },
     uVignetteOffset: { value: P.vignetteOffset },
+    uCamFwd:   { value: new THREE.Vector3(0, 0, -1) },
+    uCamRight: { value: new THREE.Vector3(1, 0, 0) },
+    uCamUp:    { value: new THREE.Vector3(0, 1, 0) },
+    uTanHalf:  { value: Math.tan(camera.fov * Math.PI / 360) },
+    uCloudInk: { value: P.cloudInk },
     uFogRoll:  { value: P.fogRoll },
     uFogStart: { value: P.fogStart },
     uFogDepth: { value: P.fogDepth },
@@ -3061,6 +3108,7 @@ function keepAboveGround() {
   }
 }
 
+const _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
 renderer.setAnimationLoop(() => {
   controls.update();
   keepAboveGround();
@@ -3071,6 +3119,12 @@ renderer.setAnimationLoop(() => {
   treeStats.popM.uniforms.uTime.value = tNow;
   for (let i = 0; i < SMOKE_MATS.length; i++) SMOKE_MATS[i].uniforms.uTime.value = tNow;
   for (let i = 0; i < PIG_MATS.length; i++) PIG_MATS[i].uniforms.uTime.value = tNow;
+  camera.getWorldDirection(_fwd);
+  compMat.uniforms.uCamFwd.value.copy(_fwd);
+  _right.crossVectors(_fwd, camera.up).normalize();
+  compMat.uniforms.uCamRight.value.copy(_right);
+  compMat.uniforms.uCamUp.value.crossVectors(_right, _fwd).normalize();
+  compMat.uniforms.uTanHalf.value = Math.tan(camera.fov * Math.PI / 360);
   renderPigment();
   renderer.setRenderTarget(rt);
   renderer.render(scene, camera);
