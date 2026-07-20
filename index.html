@@ -114,7 +114,7 @@ const P = {
   inkCeiling: 0.80,    // the darkest mark on the sheet — never solid ink
   dust:      0.30,   // weight of the drifting lens dust: seen, but never read as dirt
   dustScale: 26.0,   // cell ~25 css px, so a mote lands near 5 px across and is actually seen
-  cloudInk:  0.40,   // weight of the drawn cloud line work in the sky
+  cloudInk:  0.46,   // weight of the drawn cloud line work in the sky
   fogRoll:   0.36,   // how far the drifting edge wanders from a plain circle
   fogStart:  0.13,   // only a small lens at the centre stays completely clear
   fogDepth:  0.84,   // dense: the corners go almost to bare paper
@@ -2945,11 +2945,11 @@ const COMP_FRAG = /* glsl */`
     // the sky is bare paper; the drawing sits on it
     color = mix(uPaperColor, color, smoothstep(0.01, 0.22, data.b));
 
-    // ---- CLOUDS: A FEW STROKES ------------------------------------------------
-    // The contour loops were far too much drawing for a sky. This is what was asked
-    // for and what actually belongs on the plate: a handful of simple shallow arcs,
-    // plus the odd tiny bird tick, scattered thinly and pinned to a direction so they
-    // stay put in the sky as the camera turns. Most cells hold nothing at all.
+    // ---- CLOUD GRAIN ----------------------------------------------------------
+    // No outlines and no arcs — those read as scratches on the sheet. This is how an
+    // engraver actually shades a sky: soft masses defined by low noise, filled with a
+    // fine stipple that thickens toward the middle of each mass and thins to nothing
+    // at its edges. Sampled on the view ray so the cloud stays put as the camera turns.
     float isSky = 1.0 - smoothstep(0.01, 0.22, data.b);
     if (isSky > 0.003 && uCloudInk > 0.0) {
       float aspect2 = resolution.x / resolution.y;
@@ -2957,32 +2957,16 @@ const COMP_FRAG = /* glsl */`
                         + uCamRight * ((uv.x - 0.5) * 2.0 * aspect2 * uTanHalf)
                         + uCamUp    * ((uv.y - 0.5) * 2.0 * uTanHalf));
       if (rd.y > 0.015) {
-        vec2 sp = rd.xz / (rd.y + 0.34) * 1.9;
-        vec2 gi = floor(sp), gf = fract(sp);
-        float ink2 = 0.0;
-        for (int oy = -1; oy <= 1; oy++) {
-          for (int ox = -1; ox <= 1; ox++) {
-            vec2 o = vec2(float(ox), float(oy));
-            float h = h2c(gi + o);
-            if (h < 0.62) continue;                       // most of the sky is empty
-            vec2 c = o + vec2(fract(h * 31.7), fract(h * 57.3));
-            vec2 d = gf - c;
-            float r = 0.22 + fract(h * 91.1) * 0.20;
-            float rot = fract(h * 13.9) * 1.2 - 0.6;
-            vec2 dr = vec2(d.x * cos(rot) - d.y * sin(rot), d.x * sin(rot) + d.y * cos(rot));
-            dr.y *= 2.3;                                  // flatten it into a shallow arc
-            float ring = smoothstep(0.030, 0.0, abs(length(dr) - r));
-            ring *= smoothstep(-0.02, 0.10, -dr.y);       // keep only the lower sweep
-            ink2 = max(ink2, ring);
-            if (h > 0.93) {                               // a bird, now and then
-              vec2 b = d - vec2(0.16, 0.20);
-              float w1 = smoothstep(0.016, 0.0, abs(b.y - abs(b.x) * 0.75))
-                       * step(abs(b.x), 0.055);
-              ink2 = max(ink2, w1 * 0.8);
-            }
-          }
-        }
-        ink2 *= smoothstep(0.02, 0.10, rd.y) * smoothstep(1.05, 0.55, rd.y);
+        vec2 cuv = rd.xz / (rd.y + 0.34);
+        // the masses
+        float m1 = vnoiseC(cuv * 0.85 + 4.2) * 0.55
+                 + vnoiseC(cuv * 2.10 + 13.1) * 0.30
+                 + vnoiseC(cuv * 4.80 + 27.4) * 0.15;
+        float mass = smoothstep(0.385, 0.655, m1);
+        // the stipple that fills them
+        float g = vnoiseC(cuv * 26.0 + 3.7) * 0.58 + vnoiseC(cuv * 57.0 + 19.2) * 0.42;
+        float ink2 = mass * smoothstep(0.50 - mass * 0.34, 0.86, g);
+        ink2 *= smoothstep(0.012, 0.055, rd.y) * smoothstep(1.10, 0.62, rd.y);
         color = mix(color, uPencilColor, clamp(ink2, 0.0, 1.0) * uCloudInk * isSky);
       }
     }
