@@ -1202,6 +1202,13 @@ const PIG_FRAG = /* glsl */`
   varying vec3 vWorldPos;
   varying vec3 vNormalW;
   varying float vPhase;
+  float ph2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float pnoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(ph2(i), ph2(i + vec2(1, 0)), u.x),
+               mix(ph2(i + vec2(0, 1)), ph2(i + vec2(1, 1)), u.x), u.y);
+  }
   void main() {
     if (uPigMode < 0.5) {
       gl_FragColor = texture2D(uPigMap, (vWorldPos.xz - uCenter) / uSpan + 0.5);
@@ -1217,12 +1224,20 @@ const PIG_FRAG = /* glsl */`
       // actually looks like between the winter rains and the full spring flush.
       vec3 lo = uPigLo, hi = uPigHi, top = uPigTop;
       if (uPigVary > 1.5) {
-        // HOUSES: every instance draws one of three colourways from its own phase, so
-        // a street is limewash next to grey block next to warm brown, the way a rebuilt
-        // village is — one trade, three eras, whatever cement was going that year.
-        float ph = fract(vPhase * 3.77);
-        if (ph > 0.63)      { lo = uVar2Lo; hi = uVar2Hi; top = uVar2Top; }
-        else if (ph > 0.31) { lo = uVar1Lo; hi = uVar1Hi; top = uVar1Top; }
+        // HOUSES: a CONTINUOUS spectrum, not three buckets sitting next to each other.
+        // Two smooth fields place a house — one for how pale it is, limewash through to
+        // grey block; one for how warm, grey through to brown — and both are correlated
+        // over roughly 150 m, so a street agrees with itself and the tone drifts slowly
+        // across the village. A small per-instance jitter keeps neighbours from being
+        // identical without letting any two of them clash.
+        vec2 wp = vWorldPos.xz;
+        float t = clamp(pnoise(wp * 0.0062) * 0.72 + pnoise(wp * 0.019 + 5.3) * 0.28
+                        + (vPhase - 0.5) * 0.20, 0.0, 1.0);
+        float u = clamp(pnoise(wp * 0.0081 + 21.7) * 0.74 + pnoise(wp * 0.026 + 9.1) * 0.26
+                        + (fract(vPhase * 4.31) - 0.5) * 0.22, 0.0, 1.0) * 0.80;
+        lo  = mix(mix(uVar1Lo,  uVar2Lo,  t), uPigLo,  u);
+        hi  = mix(mix(uVar1Hi,  uVar2Hi,  t), uPigHi,  u);
+        top = mix(mix(uVar1Top, uVar2Top, t), uPigTop, u);
       } else if (uPigVary > 0.5) {
         float st = texture2D(uStandMap, (vWorldPos.xz - uCenter) / uSpan + 0.5).r;
         if (st > 0.75)      { lo = uVar2Lo; hi = uVar2Hi; }
