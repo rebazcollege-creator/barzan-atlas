@@ -94,7 +94,7 @@ function mulberry32(a) {
 const P = {
   paper:  [0.973, 0.963, 0.936],   // #f8f6ef — a much whiter, lighter sheet
   pencil: [0.44, 0.41, 0.35],      // paler grey-brown -> Chartogne's faded pencil
-  lightDir: new THREE.Vector3(-0.87, 0.098, 0.485).normalize(), // 5.6 deg: the disc is only just clear of the ridge
+  lightDir: new THREE.Vector3(-0.874, 0.036, 0.485).normalize(), // 2.1 deg: sitting on the ridgeline
   // ---- DAWN ----------------------------------------------------------------------
   // Painted in the plate's own register, not photographed. A tinted engraving does its
   // dawn with a warm wash along the horizon graduating to cool grey overhead, a pool of
@@ -111,7 +111,8 @@ const P = {
   sunGlow:  [1.000, 0.949, 0.796],   // #fff2cb the bloom
   sunDisc:  [1.000, 0.980, 0.886],   // the disc itself
   sunSize:  0.030,         // the disc's angular radius in radians — 1.7 deg
-  rayGain:  0.16,          // the engraver's sunburst: fine lines radiating from the sun
+  sunReach: 1.85,          // how far the warmth carries before the fog takes it back
+  rayGain:  0.22,          // the engraver's sunburst: fine lines radiating from the sun
   sunTint:  [1.075, 0.995, 0.870],   // what the low sun does to a lit face
   shadeTint:[0.930, 0.955, 1.020],   // and what the sky alone does to a shaded one
   poolWarm: 0.52,          // strength of the light pool sitting on the village
@@ -2817,7 +2818,7 @@ const COMP_FRAG = /* glsl */`
   uniform vec3 uSkyMid; uniform vec3 uSkyHigh;
   uniform vec3 uCloudLit; uniform vec3 uCloudDim; uniform float uRayLand;
   uniform vec3 uSunGlow; uniform vec3 uSunDisc;
-  uniform float uRayGain; uniform float uSunVis;
+  uniform float uRayGain; uniform float uSunVis; uniform float uSunReach;
   uniform vec3 uCamFwd; uniform vec3 uCamRight; uniform vec3 uCamUp;
   uniform vec3 uSunDir; uniform float uTanHalf; uniform float uSunSize;
   uniform vec2 uSunScreen;     // where the sun sits on screen
@@ -2951,21 +2952,29 @@ const COMP_FRAG = /* glsl */`
                         + uCamRight * ((uv.x - 0.5) * 2.0 * aspect * uTanHalf)
                         + uCamUp    * ((uv.y - 0.5) * 2.0 * uTanHalf));
       float el = clamp(rd.y, -1.0, 1.0);                 // 0 at the horizon
-      sky = mix(uSkyEmber, uSkyLow, smoothstep(0.000, 0.030, el));
-      sky = mix(sky, uSkySRose, smoothstep(0.020, 0.085, el));
-      sky = mix(sky, uSkyMid,   smoothstep(0.070, 0.210, el));
-      sky = mix(sky, uSkyHigh,  smoothstep(0.190, 0.520, el));
-      // streak cloud, also banded by altitude so it lies along the horizon
-      float cl = vnoiseC(vec2(px.x / 340.0, px.y / 34.0)) * 0.62
-               + vnoiseC(vec2(px.x / 121.0, px.y / 17.0) + 7.3) * 0.38;
-      float band = smoothstep(0.46, 0.78, cl) * smoothstep(0.55, 0.03, el);
-      sky = mix(sky, mix(uCloudDim, uCloudLit, smoothstep(0.09, 0.005, el)), band * 0.60);
-
-      // THE SUN, as an angle rather than a screen point. cos of the angle between the
-      // view ray and the sun gives a true circular disc at any camera orientation, it
-      // is never mirrored when the sun is behind you, and the disc keeps its size.
       float cosang = dot(rd, uSunDir);
       float ang = acos(clamp(cosang, -1.0, 1.0));        // radians from the sun
+
+      // THE FOG IS THE SKY. The plate is haze on paper everywhere, and the sunrise is a
+      // LOCAL event burning a hole in it — a whole orange sky belongs to a photograph,
+      // not to this map. So: build the fog first, build the dawn separately, and let
+      // the dawn reach only as far as uSunReach before the haze takes it back.
+      vec3 fog = mix(uPaperColor, uSkyHigh, smoothstep(-0.02, 0.42, el) * 0.42);
+
+      vec3 warm = mix(uSkyEmber, uSkyLow, smoothstep(0.000, 0.030, el));
+      warm = mix(warm, uSkySRose, smoothstep(0.020, 0.085, el));
+      warm = mix(warm, uSkyMid,   smoothstep(0.070, 0.230, el));
+      // streak cloud only inside the lit part of the sky, where it can catch the sun
+      float cl = vnoiseC(vec2(px.x / 340.0, px.y / 34.0)) * 0.62
+               + vnoiseC(vec2(px.x / 121.0, px.y / 17.0) + 7.3) * 0.38;
+      float band = smoothstep(0.46, 0.78, cl) * smoothstep(0.42, 0.02, el);
+      warm = mix(warm, mix(uCloudDim, uCloudLit, smoothstep(0.09, 0.005, el)), band * 0.60);
+
+      // how much dawn survives here: close to the sun, and low in the sky
+      float reach = exp(-ang * uSunReach);
+      float low   = smoothstep(0.34, -0.02, el);
+      sky = mix(fog, warm, clamp(reach * 0.85 + low * reach * 0.75, 0.0, 1.0));
+
       float glowA = exp(-ang * 7.0) * 0.85;
       sky = mix(sky, uSunGlow, glowA);
       // a hard-edged disc with a hot core, reddened toward its rim the way a low sun is
@@ -3071,6 +3080,7 @@ const compMat = new THREE.ShaderMaterial({
     uRayLand:  { value: P.rayLand },
     uSunDisc: { value: new THREE.Vector3(...P.sunDisc) },
     uRayGain: { value: P.rayGain },
+    uSunReach: { value: P.sunReach },
     uSunVis:  { value: 1 },
     uCamFwd:   { value: new THREE.Vector3(0, 0, -1) },
     uCamRight: { value: new THREE.Vector3(1, 0, 0) },
