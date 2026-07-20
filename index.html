@@ -2262,12 +2262,14 @@ function addLabels() {
       new THREE.ShaderMaterial({
         vertexShader: `
           varying vec2 vUv;
+          varying float vDist;
           void main() {
             vUv = uv;
             // billboard: take the object's origin into view space and offset by the
             // quad's own xy there, so the name always faces the reader whatever the
             // camera does, while staying anchored over the village.
             vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+            vDist = length(mv.xyz);
             mv.xy += position.xy;
             gl_Position = projectionMatrix * mv;
           }`,
@@ -2276,13 +2278,20 @@ function addLabels() {
           uniform float uStrength;
           uniform float uRedA;
           varying vec2 vUv;
+          varying float vDist;
           void main() {
-            // no grazing fade any more: it stands upright, so it reads from every angle
             float ink = texture2D(tText, vUv).r * uStrength;
-            gl_FragColor = vec4(0.0, ink, 0.0, uRedA * smoothstep(0.0, 0.12, ink));
+            // come in close and the name dissolves into the haze: it is a label for
+            // finding the village, not something to walk into
+            ink *= smoothstep(230.0, 540.0, vDist);
+            // WRITE DEPTH WHERE THE LETTERS ARE. Without it the composite reads this
+            // patch as empty sky and lays paper straight over the name, which is why
+            // BARZAN kept disappearing behind the fog.
+            float solid = min(ink * 7.0, 1.0) * 0.55;
+            gl_FragColor = vec4(0.0, ink, solid, uRedA * smoothstep(0.0, 0.12, ink));
           }
         `,
-        uniforms: { tText: { value: tex }, uStrength: { value: 0.80 }, uRedA: { value: 0.92 } },   // the masthead's madder
+        uniforms: { tText: { value: tex }, uStrength: { value: 0.52 }, uRedA: { value: 0.92 } },   // softer, and the masthead's madder
         blending: THREE.CustomBlending,
       blendEquation: THREE.AddEquation,
       blendSrc: THREE.OneFactor,
@@ -2933,31 +2942,44 @@ const COMP_FRAG = /* glsl */`
     // the sky is bare paper; the drawing sits on it
     color = mix(uPaperColor, color, smoothstep(0.01, 0.22, data.b));
 
-    // ---- CLOUDS, DRAWN --------------------------------------------------------
-    // Not a wash: line work, in the same ink as everything else. A contour taken
-    // through a noise field gives closed looping outlines, which is exactly how an
-    // engraver draws a cloud — with a lighter echo inside it and a little hatching
-    // under the belly. Sampled on the view ray projected to a cloud plane, so they
-    // are fixed in the SKY: turn the camera and you move past them.
+    // ---- CLOUDS: A FEW STROKES ------------------------------------------------
+    // The contour loops were far too much drawing for a sky. This is what was asked
+    // for and what actually belongs on the plate: a handful of simple shallow arcs,
+    // plus the odd tiny bird tick, scattered thinly and pinned to a direction so they
+    // stay put in the sky as the camera turns. Most cells hold nothing at all.
     float isSky = 1.0 - smoothstep(0.01, 0.22, data.b);
     if (isSky > 0.003 && uCloudInk > 0.0) {
       float aspect2 = resolution.x / resolution.y;
       vec3 rd = normalize(uCamFwd
                         + uCamRight * ((uv.x - 0.5) * 2.0 * aspect2 * uTanHalf)
                         + uCamUp    * ((uv.y - 0.5) * 2.0 * uTanHalf));
-      if (rd.y > 0.02) {
-        // A true cloud plane divides by rd.y and so explodes at the horizon — which is
-        // where nearly all the sky is in this framing, leaving every shape crushed into
-        // a thread. Softening the divisor keeps the clouds fixed to a direction while
-        // holding their size roughly even from the horizon to overhead.
-        vec2 cuv = rd.xz / (rd.y + 0.32);
-        float n = vnoiseC(cuv * 1.15 + 4.2) * 0.60 + vnoiseC(cuv * 3.10 + 13.1) * 0.40;
-        float outline = smoothstep(0.034, 0.0, abs(n - 0.545));
-        float echo    = smoothstep(0.020, 0.0, abs(n - 0.635));
-        float belly   = smoothstep(0.545, 0.60, n) * smoothstep(0.72, 0.60, n)
-                      * step(0.55, fract(cuv.y * 7.5 + n * 3.0));
-        float ink2 = outline * 0.62 + echo * 0.34 + belly * 0.30;
-        ink2 *= smoothstep(0.010, 0.060, rd.y) * smoothstep(1.05, 0.62, rd.y);
+      if (rd.y > 0.015) {
+        vec2 sp = rd.xz / (rd.y + 0.34) * 1.9;
+        vec2 gi = floor(sp), gf = fract(sp);
+        float ink2 = 0.0;
+        for (int oy = -1; oy <= 1; oy++) {
+          for (int ox = -1; ox <= 1; ox++) {
+            vec2 o = vec2(float(ox), float(oy));
+            float h = h2c(gi + o);
+            if (h < 0.62) continue;                       // most of the sky is empty
+            vec2 c = o + vec2(fract(h * 31.7), fract(h * 57.3));
+            vec2 d = gf - c;
+            float r = 0.22 + fract(h * 91.1) * 0.20;
+            float rot = fract(h * 13.9) * 1.2 - 0.6;
+            vec2 dr = vec2(d.x * cos(rot) - d.y * sin(rot), d.x * sin(rot) + d.y * cos(rot));
+            dr.y *= 2.3;                                  // flatten it into a shallow arc
+            float ring = smoothstep(0.030, 0.0, abs(length(dr) - r));
+            ring *= smoothstep(-0.02, 0.10, -dr.y);       // keep only the lower sweep
+            ink2 = max(ink2, ring);
+            if (h > 0.93) {                               // a bird, now and then
+              vec2 b = d - vec2(0.16, 0.20);
+              float w1 = smoothstep(0.016, 0.0, abs(b.y - abs(b.x) * 0.75))
+                       * step(abs(b.x), 0.055);
+              ink2 = max(ink2, w1 * 0.8);
+            }
+          }
+        }
+        ink2 *= smoothstep(0.02, 0.10, rd.y) * smoothstep(1.05, 0.55, rd.y);
         color = mix(color, uPencilColor, clamp(ink2, 0.0, 1.0) * uCloudInk * isSky);
       }
     }
