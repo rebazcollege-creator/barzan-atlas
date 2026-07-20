@@ -94,7 +94,21 @@ function mulberry32(a) {
 const P = {
   paper:  [0.973, 0.963, 0.936],   // #f8f6ef — a much whiter, lighter sheet
   pencil: [0.44, 0.41, 0.35],      // paler grey-brown -> Chartogne's faded pencil
-  lightDir: new THREE.Vector3(-0.78, 0.40, 0.48).normalize(),   // low and lateral: one wall
+  lightDir: new THREE.Vector3(-0.86, 0.155, 0.49).normalize(),  // 9 deg: the sun is barely up
+  // ---- DAWN ----------------------------------------------------------------------
+  // Painted in the plate's own register, not photographed. A tinted engraving does its
+  // dawn with a warm wash along the horizon graduating to cool grey overhead, a pool of
+  // low light where the subject is, and haze everywhere else. That is exactly the
+  // picture asked for, and it is the one that does not break the paper.
+  skyLow:   [0.937, 0.855, 0.706],   // #efdab4  gold along the horizon
+  skyMid:   [0.949, 0.918, 0.851],   // #f2ead9
+  skyHigh:  [0.847, 0.867, 0.882],   // #d8dde1  cool, overhead
+  sunGlow:  [0.976, 0.910, 0.780],   // the disc's bloom
+  sunTint:  [1.075, 0.995, 0.870],   // what the low sun does to a lit face
+  shadeTint:[0.930, 0.955, 1.020],   // and what the sky alone does to a shaded one
+  poolWarm: 0.52,          // strength of the light pool sitting on the village
+  poolSize: 0.44,          // its radius, in screen heights
+  dawn:     1.0,           // master: 0 turns the whole dawn off and restores the day plate
                                                                 // is truly lit, the other truly in shade
   strokeDir: new THREE.Vector3(1.0, 1.35, 0.45).normalize(),
   subdivision: 1.75,       // lines/metre on walls — their measured pitch. Countable marks
@@ -1208,6 +1222,8 @@ const PIG_FRAG = /* glsl */`
   uniform float uPigS;
   uniform float uPigMode;
   uniform float uPigVary;
+  uniform vec3 uSunTint;
+  uniform vec3 uShadeTint;
   uniform sampler2D uStandMap;
   uniform vec3 uVar1Lo; uniform vec3 uVar1Hi; uniform vec3 uVar1Top;
   uniform vec3 uVar2Lo; uniform vec3 uVar2Hi; uniform vec3 uVar2Top;
@@ -1257,6 +1273,9 @@ const PIG_FRAG = /* glsl */`
       }
       vec3 side = mix(lo, hi, lit);           // shaded -> sunlit
       vec3 c = mix(side, top, up);            // -> the roof plane / the crown top
+      // golden hour: a lit face takes the sun's warmth, a shaded one takes only the
+      // sky, which is cool. This split is most of what reads as low sunlight.
+      c *= mix(uShadeTint, uSunTint, lit);
       c *= 0.94 + vPhase * 0.12;              // every instance its own mix in the pan
       gl_FragColor = vec4(c, uPigS);
     }
@@ -1275,6 +1294,8 @@ function pigMaterial(lo, hi, top, strength, opts = {}) {
       uPigTop:  { value: new THREE.Vector3(top[0], top[1], top[2]) },
       uLightDir:{ value: P.lightDir },
       uPigS:    { value: strength },
+      uSunTint:   { value: new THREE.Vector3(...P.sunTint) },
+      uShadeTint: { value: new THREE.Vector3(...P.shadeTint) },
       uPigMode: { value: opts.map ? 0 : 1 },
       uPigVary: { value: opts.ways ? 2 : opts.vary ? 1 : 0 },
       uVar1Top: { value: new THREE.Vector3(...((opts.ways ? opts.ways[2] : [0,0,0]).slice(0,3))) },
@@ -2784,6 +2805,10 @@ const COMP_FRAG = /* glsl */`
   uniform float uNoiseStrength;
   uniform float uPaperStrength;
   uniform float uInkCeiling;
+  uniform vec3 uSkyLow; uniform vec3 uSkyMid; uniform vec3 uSkyHigh; uniform vec3 uSunGlow;
+  uniform vec2 uSunScreen;     // where the sun sits on screen
+  uniform vec2 uTownScreen;    // and where Barzan does
+  uniform float uPoolWarm; uniform float uPoolSize; uniform float uDawn;
   uniform sampler2D tPigment;
   uniform float uWash;
   uniform float uInkTint;
@@ -2897,7 +2922,36 @@ const COMP_FRAG = /* glsl */`
     vec3 color = mix(sheet, inkCol, cover);
 
     // far ridges dissolve into the air of the page
-    color = mix(uPaperColor, color, smoothstep(0.01, 0.22, data.b));
+    // ---- THE SKY -------------------------------------------------------------
+    // Everywhere no geometry stands, the sheet becomes dawn: gold along the horizon,
+    // cool grey overhead, and the sun's bloom where the light is coming from. Still a
+    // wash on paper — the grain and the frame run straight over it.
+    vec3 sky = uPaperColor;
+    if (uDawn > 0.001) {
+      float h = clamp(uv.y, 0.0, 1.0);
+      sky = mix(uSkyLow, uSkyMid, smoothstep(0.30, 0.62, h));
+      sky = mix(sky, uSkyHigh, smoothstep(0.58, 1.0, h));
+      float sd = distance(uv * vec2(resolution.x / resolution.y, 1.0),
+                          uSunScreen * vec2(resolution.x / resolution.y, 1.0));
+      sky = mix(sky, uSunGlow, exp(-sd * 5.2) * 0.85);
+      sky = mix(uPaperColor, sky, uDawn);
+    }
+    color = mix(sky, color, smoothstep(0.01, 0.22, data.b));
+
+    // ---- THE POOL OF LIGHT ---------------------------------------------------
+    // The village stands in the sun; the land around it stays in the blue of the hour.
+    // A colourist would lay exactly this, and it is why the eye goes to Barzan.
+    if (uDawn > 0.001) {
+      float pd = distance(uv * vec2(resolution.x / resolution.y, 1.0),
+                          uTownScreen * vec2(resolution.x / resolution.y, 1.0));
+      float pool = 1.0 - smoothstep(uPoolSize * 0.25, uPoolSize, pd);
+      // ONLY on the land. Letting it touch the sky turned the pool into a soft blob
+      // hanging in the air instead of light lying on the ground.
+      float onLand = smoothstep(0.01, 0.22, data.b);
+      color *= mix(vec3(1.0), mix(vec3(0.949, 0.963, 1.012),
+                                  vec3(1.0) + (uSunGlow - vec3(0.86)) * uPoolWarm, pool),
+                   uDawn * onLand);
+    }
 
     color += (random2d(uv * 100.0 + mod(uTime, 100.0)) - 0.5) * uNoiseStrength;
 
@@ -2954,6 +3008,15 @@ const compMat = new THREE.ShaderMaterial({
     uNoiseStrength: { value: P.noiseStrength },
     uPaperStrength: { value: P.paperStrength },
     uInkCeiling: { value: P.inkCeiling },
+    uSkyLow:  { value: new THREE.Vector3(...P.skyLow) },
+    uSkyMid:  { value: new THREE.Vector3(...P.skyMid) },
+    uSkyHigh: { value: new THREE.Vector3(...P.skyHigh) },
+    uSunGlow: { value: new THREE.Vector3(...P.sunGlow) },
+    uSunScreen:  { value: new THREE.Vector2(0.5, 0.62) },
+    uTownScreen: { value: new THREE.Vector2(0.5, 0.5) },
+    uPoolWarm: { value: P.poolWarm },
+    uPoolSize: { value: P.poolSize },
+    uDawn:     { value: P.dawn },
     tPigment: { value: rtPig.texture },
     uWash: { value: P.wash },
     uInkTint: { value: P.inkTint },
@@ -3044,6 +3107,7 @@ function keepAboveGround() {
   }
 }
 
+const _sunV = new THREE.Vector3(), _townV = new THREE.Vector3();
 renderer.setAnimationLoop(() => {
   controls.update();
   keepAboveGround();
@@ -3054,6 +3118,11 @@ renderer.setAnimationLoop(() => {
   treeStats.popM.uniforms.uTime.value = tNow;
   for (let i = 0; i < SMOKE_MATS.length; i++) SMOKE_MATS[i].uniforms.uTime.value = tNow;
   for (let i = 0; i < PIG_MATS.length; i++) PIG_MATS[i].uniforms.uTime.value = tNow;
+  // where is the sun, and where is Barzan, on screen this frame?
+  _sunV.copy(P.lightDir).multiplyScalar(9000).add(controls.target).project(camera);
+  compMat.uniforms.uSunScreen.value.set(_sunV.x * 0.5 + 0.5, _sunV.y * 0.5 + 0.5);
+  _townV.set(CX, hTown + 30, CZ).project(camera);
+  compMat.uniforms.uTownScreen.value.set(_townV.x * 0.5 + 0.5, _townV.y * 0.5 + 0.5);
   renderPigment();
   renderer.setRenderTarget(rt);
   renderer.render(scene, camera);
