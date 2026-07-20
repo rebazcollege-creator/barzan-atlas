@@ -1564,7 +1564,42 @@ function compoundWall() {
   ]);
 }
 
+// One animal, as boxes. Solid-flagged so it inks flat and dark whatever the light
+// is doing — at village zoom a sheep is a mark, and a mark has to be black.
+function beast(p, x, z, ang, bw, bh, bd) {
+  const c = Math.cos(ang), sn = Math.sin(ang);
+  const put = (w, h, d, lx, ly, lz, tone) =>
+    p.push(boxPart(w, h, d, x + lx * c - lz * sn, ly, z + lx * sn + lz * c, tone, 1));
+  put(bw, bh * 0.46, bd, 0, bh * 0.70, 0, 0.97);
+  put(bw * 0.70, bh * 0.32, bw * 0.85, 0, bh * 0.88, bd * 0.50, 0.99);
+  for (const [sx2, sz2] of [[1, 1], [-1, 1], [1, -1], [-1, -1]])
+    put(bw * 0.20, bh * 0.48, bw * 0.20, sx2 * bw * 0.30, bh * 0.24, sz2 * bd * 0.32, 0.94);
+}
+
+// A yard built on a real surveyed footprint: pen wall, shelter, and its flock already
+// inside the mesh. Kind 10 = sheep, kind 11 = cattle.
+function yardArchetype(cattle) {
+  const p = [], H = 1.95, T = 0.40, W = 9, D = 7, r = mulberry32(cattle ? 771 : 337);
+  p.push(boxPart(W, H, T, 0, H / 2, -D / 2, 0.70, 0, 1));
+  p.push(boxPart(T, H, D, -W / 2, H / 2, 0, 0.70, 0, 1));
+  p.push(boxPart(T, H, D,  W / 2, H / 2, 0, 0.70, 0, 1));
+  p.push(boxPart(W * 0.32, H, T, -W * 0.34, H / 2, D / 2, 0.70, 0, 1));
+  p.push(boxPart(W * 0.32, H, T,  W * 0.34, H / 2, D / 2, 0.70, 0, 1));
+  // the shelter along the back, and a fodder rick beside it
+  p.push(boxPart(5.4, cattle ? 3.0 : 2.5, 2.4, -1.2, cattle ? 1.5 : 1.25, -2.0, 0.78, 0, 3));
+  p.push(boxPart(5.9, 0.22, 2.9, -1.2, cattle ? 3.11 : 2.61, -1.9, 0.62));
+  p.push(boxPart(2.0, 1.9, 1.8, 3.0, 0.95, -2.1, 0.74));
+  // the flock, standing in the open half of the yard
+  const n = cattle ? 5 : 16;
+  for (let i = 0; i < n; i++)
+    beast(p, (r() - 0.5) * (W - 2.4), (r() - 0.5) * 2.8 + 1.5, r() * Math.PI * 2,
+          cattle ? 1.02 : 0.70, cattle ? 1.80 : 1.10, cattle ? 2.60 : 1.65);
+  return mergeGeometries(p);
+}
+
 function houseArchetype(kind) {
+  if (kind === 10) return yardArchetype(false);
+  if (kind === 11) return yardArchetype(true);
   // ---- the two rebuild generations, and the older forms that survive among them ----
   if (kind === 6) {
     // SPINDAR: the early-1990s NGO rebuild. One storey, poplar beams carrying a mud
@@ -1700,8 +1735,8 @@ const feats = S.buildings.map(footprintFeatures)
 
 function placeHouses() {
   const mats = () => dataMaterial(0, { flat: 1 }); // tone rides in aTone; no ruled lines on buildings
-  const kinds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(houseArchetype);   // ten building types
-  const buckets = [[], [], [], [], [], [], [], [], [], []];   // one bucket per type
+  const kinds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(houseArchetype);   // + two farmyards
+  const buckets = [[], [], [], [], [], [], [], [], [], [], [], []];   // one bucket per type
   const rng = mulberry32(1926);
   feats.forEach(f => {
     // Weighted as the research describes the village: mostly the later concrete
@@ -1715,9 +1750,11 @@ function placeHouses() {
     const pick = rng();
     if (f.w < 8.0)            k = pick < 0.70 ? 8 : 6;            // byre, or a small spindar
     else if (f.w > 13.5) {
-      k = pick < 0.40 ? 9 : pick < 0.60 ? 2 : pick < 0.80 ? 3
-        : pick < 0.935 ? 6 : pick < 0.97 ? 7 : 4;
+      k = pick < 0.36 ? 9 : pick < 0.54 ? 2 : pick < 0.72 ? 3
+        : pick < 0.845 ? 6 : pick < 0.875 ? 7 : pick < 0.895 ? 4
+        : pick < 0.965 ? 10 : 11;
     }
+    else if (pick < 0.10)     k = 10;
     else if (pick < 0.22)     k = 9;
     else if (pick < 0.52)     k = 6;
     else if (pick < 0.66)     k = 0;
@@ -1741,7 +1778,7 @@ function placeHouses() {
       // 70-80 m2 actually rebuilt here, and stands INSIDE its plot pushed to the back,
       // leaving the yard between it and the lane. Only plots too small for a yard
       // still get a building stretched to the outline.
-      const yard = f.w > 10.5 && f.d > 8.5 && k !== 8;
+      const yard = f.w > 10.5 && f.d > 8.5 && k !== 8 && k < 10;
       // sized to land on the 70-80 m2 UN-Habitat actually rebuilt here, then clamped
       // so a house can never break out through its own wall on a shallow plot
       const sw = Math.min(0.95 + rng() * 0.30, (f.w - 1.0) / 9);
