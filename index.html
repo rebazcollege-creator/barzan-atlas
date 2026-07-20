@@ -363,7 +363,7 @@ const PIG = {
   forest:   [0.636, 0.701, 0.507, 0.62],  // #9cb075  oak woodland, read as GREEN
   wadi:     [0.741, 0.749, 0.718, 0.30],  // #bdbfb7  the damp thread still running in the channel bed
   gravel:   [0.855, 0.839, 0.792, 0.18],  // #dad6ca  dry limestone shingle: lighter than the ground it cuts
-  village:  [0.918, 0.886, 0.824, 0.25],  // #eae2d2  yards and lanes, lighter than everything they cross
+  village:  [0.898, 0.859, 0.784, 0.42],  // #e5dbc8  yards and lanes: trodden earth, not bare paper
   canopyLo: [0.592, 0.667, 0.462, 1.0],   // #90a866  crown in shade. Green, but held at L*65.8: any darker and the shaded oak ties the roofs and the village stops reading as the dark mass
   canopyHi: [0.652, 0.709, 0.542, 1.0],   // #a4b77f  crown in sun — the spring flush
   ochreLo:  [0.686, 0.642, 0.420, 1.0],   // #ad9f57  the stand that has turned
@@ -1042,7 +1042,7 @@ function buildMarks() {
   // enough that the houses still own the tone.
   {
     const yRng = mulberry32(5150);
-    const STEP = 4.2;
+    const STEP = 2.6;
     x.lineCap = 'round';
     for (let wy = CY - SPAN / 2; wy < CY + SPAN / 2; wy += STEP) {
       for (let wx = CX - SPAN / 2; wx < CX + SPAN / 2; wx += STEP) {
@@ -1051,21 +1051,33 @@ function buildMarks() {
         const jx = wx + (yRng() - 0.5) * STEP, jy = wy + (yRng() - 0.5) * STEP;
         const X = sx([jx, jy]), Y = sy([jx, jy]);
         const r = yRng();
-        if (r < 0.34) {                                    // a scuff, any direction
-          const a = yRng() * Math.PI * 2, L = (1.4 + yRng() * 2.6) * PXM;
+        if (r < 0.46) {                                    // a scuff, any direction
+          const a = yRng() * Math.PI * 2, L = (1.4 + yRng() * 3.0) * PXM;
           x.strokeStyle = '#f00';
-          x.globalAlpha = 0.13 + yRng() * 0.14;
-          x.lineWidth = 0.75;
+          x.globalAlpha = 0.15 + yRng() * 0.17;
+          x.lineWidth = 0.8;
           x.beginPath();
           x.moveTo(X - Math.cos(a) * L / 2, Y - Math.sin(a) * L / 2);
           x.lineTo(X + Math.cos(a) * L / 2, Y + Math.sin(a) * L / 2);
           x.stroke();
-        } else if (r < 0.42) {                             // a loose stone
+        } else if (r < 0.60) {                             // a loose stone
           x.fillStyle = '#f00';
-          x.globalAlpha = 0.16 + yRng() * 0.12;
+          x.globalAlpha = 0.18 + yRng() * 0.14;
           x.beginPath();
-          x.arc(X, Y, (0.30 + yRng() * 0.45) * PXM, 0, 6.283);
+          x.arc(X, Y, (0.30 + yRng() * 0.50) * PXM, 0, 6.283);
           x.fill();
+        } else if (r < 0.70) {                             // a wheel rut, twin lines
+          const a = yRng() * Math.PI * 2, L = (3.0 + yRng() * 5.0) * PXM;
+          const nx2 = -Math.sin(a) * 0.55 * PXM, ny2 = Math.cos(a) * 0.55 * PXM;
+          x.strokeStyle = '#f00';
+          x.globalAlpha = 0.11 + yRng() * 0.10;
+          x.lineWidth = 0.7;
+          x.beginPath();
+          for (const sgn of [1, -1]) {
+            x.moveTo(X + nx2 * sgn - Math.cos(a) * L / 2, Y + ny2 * sgn - Math.sin(a) * L / 2);
+            x.lineTo(X + nx2 * sgn + Math.cos(a) * L / 2, Y + ny2 * sgn + Math.sin(a) * L / 2);
+          }
+          x.stroke();
         }
       }
     }
@@ -2398,6 +2410,80 @@ function placeMosque() {
   return m;
 }
 
+/* ---------- the clutter of a working village ----------
+   Firewood stacks, oil drums, block piles, fodder. Placed in a ring around every
+   compound, which is exactly where the white space was, and skipped wherever a lane
+   or another building already is. Each is one or two boxes, solid-inked so a nine
+   pixel object still lands as a mark. */
+function placeVillageProps() {
+  const rng = mulberry32(3391);
+  const GC2 = 60, bg = new Map();
+  feats.forEach(f => {
+    const k = Math.floor(f.x / GC2) + ',' + Math.floor(f.y / GC2);
+    (bg.get(k) || bg.set(k, []).get(k)).push(f);
+  });
+  const rg = new Map();
+  [S.roadsMajor, S.roadsMinor, S.tracks].forEach(set => set.forEach(l => l.forEach(p => {
+    const k = Math.floor(p[0] / GC2) + ',' + Math.floor(p[1] / GC2);
+    (rg.get(k) || rg.set(k, []).get(k)).push(p);
+  })));
+  const hits = (m, wx, wy, r) => {
+    const ci = Math.floor(wx / GC2), cj = Math.floor(wy / GC2), rc = Math.ceil(r / GC2);
+    for (let i = ci - rc; i <= ci + rc; i++) for (let j = cj - rc; j <= cj + rc; j++) {
+      const a = m.get(i + ',' + j); if (!a) continue;
+      for (const p of a) {
+        const px = p.x ?? p[0], py = p.y ?? p[1];
+        if ((px - wx) ** 2 + (py - wy) ** 2 < r * r) return true;
+      }
+    }
+    return false;
+  };
+  const spots = [[], [], [], []];
+  feats.forEach(f => {
+    const n = 2 + Math.floor(rng() * 4);
+    for (let i = 0; i < n; i++) {
+      const a = rng() * Math.PI * 2, rad = 9 + rng() * 15;
+      const wx = f.x + Math.cos(a) * rad, wy = f.y + Math.sin(a) * rad;
+      if (Math.abs(wx - CX) > SPAN * 0.48 || Math.abs(wy + CZ) > SPAN * 0.48) continue;
+      if (hits(bg, wx, wy, 8.5)) continue;          // not on top of a neighbour
+      if (hits(rg, wx, wy, 5.5)) continue;          // not in the middle of a lane
+      spots[(rng() * 4) | 0].push([wx, wy, rng() * Math.PI * 2]);
+    }
+  });
+  const KIND = [
+    () => mergeGeometries([                                    // firewood, stacked
+      boxPart(1.7, 0.55, 0.85, 0, 0.28, 0, 0.86, 1),
+      boxPart(1.5, 0.45, 0.70, 0.05, 0.75, 0, 0.80, 1)]),
+    () => mergeGeometries([                                    // two drums
+      boxPart(0.62, 0.95, 0.62, -0.4, 0.48, 0, 0.90, 1),
+      boxPart(0.62, 0.95, 0.62,  0.4, 0.48, 0.25, 0.84, 1)]),
+    () => mergeGeometries([                                    // block pile
+      boxPart(1.5, 0.42, 1.0, 0, 0.21, 0, 0.70, 0, 1),
+      boxPart(1.1, 0.40, 0.8, 0.15, 0.62, 0.05, 0.66, 0, 1)]),
+    () => mergeGeometries([                                    // fodder / straw
+      boxPart(1.3, 1.0, 1.3, 0, 0.50, 0, 0.74),
+      boxPart(1.05, 0.5, 1.05, 0, 1.22, 0, 0.68)])
+  ];
+  const dummy = new THREE.Object3D();
+  let total = 0;
+  spots.forEach((list, k) => {
+    if (!list.length) return;
+    const m = new THREE.InstancedMesh(KIND[k](), dataMaterial(0, { flat: 1 }), list.length);
+    list.forEach((p, i) => {
+      dummy.position.set(p[0], sampleH(p[0], p[1]) - 0.15, -p[1]);
+      dummy.rotation.set(0, p[2], 0);
+      dummy.scale.set(0.85 + rng() * 0.45, 0.85 + rng() * 0.5, 0.85 + rng() * 0.45);
+      dummy.updateMatrix();
+      m.setMatrixAt(i, dummy.matrix);
+    });
+    m.frustumCulled = false;
+    m.userData.pig = housePig;
+    scene.add(m);
+    total += list.length;
+  });
+  return total;
+}
+
 /* ---------- grazing fields ----------
    Large fenced paddocks standing in the OPEN GROUND between the house clusters, the
    way the tree masses do — three to five times the footprint of a house, so they read
@@ -2604,6 +2690,7 @@ function placePaddocks() {
 placeHouses();
 placeMosque();
 const FARMS = placePaddocks();
+const PROPS = placeVillageProps();
 const treeStats = placeTrees();
 
 // NO settlement underwash (Atelier Review 11): the landuse-hull-shaped wash
