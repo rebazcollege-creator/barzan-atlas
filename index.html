@@ -41,8 +41,13 @@
    on screen before the module starts fetching data.
    ============================================================ */
 (function () {
-  if (new URLSearchParams(location.search).has('plate')) {
-    document.getElementById('loader').remove(); return;
+  // ?plate is the capture stance; ?map is the clean entrance - the living atlas with
+  // no sheet, no cuts, no flight, for visitors who have already seen the opening.
+  var q = new URLSearchParams(location.search);
+  if (q.has('plate') || q.has('map')) {
+    document.getElementById('loader').remove();
+    if (q.has('map')) window.__skipIntro = true;
+    return;
   }
   var L = document.getElementById('loader');
   var C = document.getElementById('ldC');
@@ -3519,6 +3524,11 @@ const clock = new THREE.Clock();
   // iterates an empty list and quietly does nothing.
   window.__frame = { needle: comp.querySelector('#nd'), lbl: sb.querySelector('.lbl'), bar: sb.querySelector('.bar'), pls: [] };
 })();
+if (new URLSearchParams(location.search).has('map')) {
+  camera.position.set(CX + 470, hTown + 430, CZ + 640);
+  controls.target.set(CX, hTown + 10, CZ);
+  controls.update();
+}
 if (PLATE) {
   ['frame', 'mapbtn', 'compass', 'scalebar'].forEach(id => {
     const e = document.getElementById(id); if (e) e.style.display = 'none';
@@ -3599,7 +3609,7 @@ renderer.setAnimationLoop(() => {
      overhead, the lens fog eases from a near-whiteout back to its resting weight,
      and the bird settles higher and further out than the old opening stance.
      Controls stay dead until it has landed. */
-  if (!__flight && window.__loaderWipeAt && !PLATE) {
+  if (!__flight && window.__loaderWipeAt && !PLATE && !window.__skipIntro) {
     __flight = { t0: tNow };
     controls.enabled = false;
     controls.autoRotate = false;

@@ -1,3 +1,0 @@
-ready=false
-Failed to load resource: the server responded with a status of 404 (Not Found)
-waitForBarzan: Waiting failed: 120000ms exceeded
