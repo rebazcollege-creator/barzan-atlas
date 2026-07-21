@@ -53,10 +53,19 @@
   /* ---------- the chambers: map moment text, and the paper pages ---------- */
   #vpara{position:fixed;left:50%;bottom:8vh;transform:translateX(-50%) translateY(12px);z-index:12;
     width:min(88vw,700px);text-align:center;font-family:'IM Fell English',Georgia,serif;
-    color:#30291f;opacity:0;pointer-events:none;transition:opacity 1.6s,transform 1.6s;
-    background:#f8f6ef;box-shadow:0 0 0 1px rgba(77,70,57,.35),0 2px 24px rgba(77,70,57,.14);
-    padding:30px 42px 26px}
+    color:#30291f;opacity:0;pointer-events:none;transition:opacity 1.6s,transform 1.6s,width .7s;
+    background:#f8f6ef;box-shadow:0 0 0 1px rgba(77,70,57,.35),0 2px 24px rgba(77,70,57,.14)}
   #vpara.on{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0)}
+  #vpara.min{width:300px}
+  #vbar{display:flex;align-items:center;justify-content:center;gap:11px;width:100%;
+    background:none;border:none;cursor:pointer;padding:13px 20px;
+    font-family:'IM Fell English',Georgia,serif;font-size:12.5px;letter-spacing:.3em;
+    color:#4d4639;text-transform:uppercase}
+  #vbar .chv{display:inline-flex;transition:transform .55s}
+  #vpara:not(.min) #vbar .chv{transform:rotate(180deg)}
+  #vbody{max-height:0;opacity:0;overflow:hidden;padding:0 42px;
+    transition:max-height .85s ease,opacity .6s,padding .6s}
+  #vpara:not(.min) #vbody{max-height:460px;opacity:1;padding:2px 42px 26px}
   #vpara p{font-size:18.5px;line-height:1.7;margin:0 0 22px}
   .cont{background:none;border:none;border-bottom:1px solid rgba(77,70,57,.45);
     font-family:'IM Fell English',Georgia,serif;font-size:12.5px;letter-spacing:.34em;
@@ -4216,15 +4225,23 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
     // ----- chamber I: the paragraph on its paper, over the living map -----
     const vp = document.createElement('div');
     vp.id = 'vpara';
-    vp.innerHTML = `<p>Barzan is a small village that lies in the far northwestern corner
+    vp.className = 'min';   // folded by default: the map is the host, the text a guest
+    vp.innerHTML = `<button id="vbar">The Village
+      <span class="chv"><svg width="11" height="7" viewBox="0 0 11 7" fill="none"
+        stroke="#4d4639" stroke-width="1.3"><path d="M1 6l4.5-4.5L10 6"/></svg></span>
+      </button><div id="vbody"><p>Barzan is a small village that lies in the far northwestern corner
       of Erbil province, close to the borders of both Iran and Turkey. Before the
       emergence of the Barzani sheikhdom, it was a small village situated within the
       wider sphere of the Zebari tribe. The ancestors of the Barzanis themselves
       belonged to this broader Zebari world. Yet over time, the village would become
       something far more significant than a geographical location. It would lend its
       name to a religious tradition and eventually a political movement.</p>
-      <button class="cont" id="vcont">Continue</button>`;
+      <button class="cont" id="vcont">Continue</button></div>`;
     document.body.appendChild(vp);
+    vp.querySelector('#vbar').addEventListener('click', () => {
+      vp.classList.toggle('min');
+      if (window.__sndTick) window.__sndTick();
+    });
 
     // ----- chamber II: the paper page -----
     const ch = document.createElement('div');
@@ -4415,7 +4432,7 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
           controls.update();
           state = showPara ? 0 : 2;
           window.__chamberBusy = state !== 2;   // the idle tour returns only on the free map
-          if (showPara) vp.classList.add('on');
+          if (showPara) { vp.classList.remove('min'); vp.classList.add('on'); }
           busy = false; showBack();
         });
       }, 650);
