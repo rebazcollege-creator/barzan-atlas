@@ -71,7 +71,7 @@
     font-family:'IM Fell English',Georgia,serif;font-size:12.5px;letter-spacing:.34em;
     color:#4d4639;cursor:pointer;padding:6px 4px;text-transform:uppercase;opacity:.85}
   .cont:hover{opacity:1;border-color:#a5301f;color:#a5301f}
-  #chamber{position:fixed;inset:0;z-index:30;overflow-y:auto;background:#f8f6ef;
+  #chamber{position:fixed;inset:0;z-index:30;overflow-y:auto;background:#f8f6ef;scroll-behavior:smooth;
     opacity:0;pointer-events:none;transition:opacity .6s}
   #chamber.on{opacity:1;pointer-events:auto}
   .ch-wrap{width:min(90vw,680px);margin:0 auto;padding:7vh 0 18vh;text-align:center;
@@ -85,6 +85,19 @@
     background:rgba(77,70,57,.32)}
   .ch-body p{font-size:19.5px;line-height:1.85;text-align:left;margin:0 0 2.2em}
   .ch-body i{font-style:italic}
+  .ch-sec-wrap{position:relative}
+  .ch-num{position:absolute;left:-76px;top:10px;width:34px;text-align:center;
+    font-size:13px;letter-spacing:.15em;color:rgba(77,70,57,.55);text-decoration:none;
+    font-family:'IM Fell English',Georgia,serif}
+  .ch-num:hover{color:#a5301f}
+  .ch-sec{font-size:25px;letter-spacing:.24em;text-transform:uppercase;font-weight:400;
+    text-align:left;margin:3.4em 0 1.5em;line-height:1.5}
+  .ch-sub{font-size:17.5px;letter-spacing:.2em;text-transform:uppercase;font-weight:400;
+    text-align:left;margin:2.6em 0 1.2em}
+  .ch-photo{margin:3.2em auto;max-width:520px;text-align:center}
+  .ch-photo img{display:block;width:100%;filter:grayscale(1) sepia(.18) contrast(.92) brightness(1.03)}
+  .ch-photo figcaption{font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:#4d4639;margin-top:11px;line-height:1.8}
   .ch-sketch{margin:0 auto 4.2em;width:min(76%,540px);text-align:center}
   .ch-sketch img{display:block;width:100%;opacity:0;filter:blur(9px);
     transition:opacity 1.5s ease,filter 1.5s ease}
@@ -4445,6 +4458,57 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
         });
       }, 650);
     }
+
+    /* TEMPORARY FULL PIECE (Rebaz, 2026-07-21): the whole article continues on this
+       page after the takya, each section hung on the standing line with a clickable
+       numeral. Later, sections graduate into chambers of their own. */
+    const SEC = [
+      ['belief', 'III', 'The Origins of Barzani Belief'],
+      ['abdul-salam', 'IV', 'Abdul Salam II'],
+      ['red-turban', 'V', 'The Red Turban'],
+      ['sheikh-ahmed', 'VI', 'Sheikh Ahmed'],
+      ['first-revolt', 'VII', 'The First Barzan Revolt'],
+      ['second-revolt', 'VIII', 'The Second Barzan Revolt'],
+      ['exile-return', 'IX', 'Between Exile and Return'],
+      ['disputes', 'X', 'Intra-Kurdish Disputes'],
+      ['the-crack', 'XI', 'The Crack Within the House'],
+      ['collapse', 'XII', 'Collapse, Survival, and the Genocide'],
+      ['colophon', '·', 'Sources and Methodology'],
+    ];
+    const PLIMG = {
+      '02': '02-abdul-salam-ii-tbilisi-1913.png',
+      '03': '03-barzani-family-tree-ayub-barzani.png',
+      '04': '04-sheikh-ahmed-mustafa-baghdad-1958.png',
+      '05': '05-mustafa-barzani-sons-chart.png',
+      '06': '06-mustafa-idris-masoud-washington-1977.jpg',
+      '07': '07-milestones-timeline-graphic.png',
+    };
+    fetch('./story.json').then(r => r.json()).then(SJ => {
+      const body = ch.querySelector('.ch-body');
+      // the takya's own numeral, on the line beside its opening
+      body.insertAdjacentHTML('afterbegin',
+        '<a class="ch-num" href="#chamber" title="The Takya" style="top:2px">II</a>');
+      SEC.forEach(([slug, num, title]) => {
+        const c2 = SJ.chapters.find(x => x.slug === slug);
+        if (!c2) return;
+        const sec = document.createElement('section');
+        sec.className = 'ch-sec-wrap';
+        sec.id = 's-' + slug;
+        let h = `<a class="ch-num" href="#s-${slug}" title="${title}">${num}</a>
+                 <h2 class="ch-sec">${title}</h2>`;
+        c2.blocks.forEach(b => {
+          if (b.t === 'h') h += `<h3 class="ch-sub">${b.text}</h3>`;
+          else if (b.t === 'caption') {
+            const im = PLIMG[b.plate];
+            if (im) h += `<figure class="ch-photo"><div class="mat2"><img loading="lazy"
+              src="assets/${im}" alt="${b.text.replace(/"/g, '&quot;')}"></div>
+              <figcaption>${b.text}</figcaption></figure>`;
+          } else h += `<p>${b.text}</p>`;
+        });
+        sec.innerHTML = h;
+        body.appendChild(sec);
+      });
+    }).catch(() => { /* the takya alone still stands if the fetch fails */ });
 
     // marginal drawings ink themselves in as the reader reaches them
     const skObs = new IntersectionObserver(es => es.forEach(e => {
