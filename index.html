@@ -13,6 +13,8 @@
   @font-face{font-family:'Britti Sans';src:url('./fonts/BrittiSans-Regular.woff2') format('woff2');font-weight:400;font-display:swap}
   @font-face{font-family:'Britti Sans';src:url('./fonts/BrittiSans-Medium.woff2') format('woff2');font-weight:500;font-display:swap}
   @font-face{font-family:'Britti Sans';src:url('./fonts/BrittiSans-Bold.woff2') format('woff2');font-weight:700;font-display:swap}
+  @font-face{font-family:'IM Fell English';src:url('./fonts/IMFellEnglish-Regular.woff2') format('woff2');font-style:normal;font-display:swap}
+  @font-face{font-family:'IM Fell English';src:url('./fonts/IMFellEnglish-Italic.woff2') format('woff2');font-style:italic;font-display:swap}
   #mapbtn{position:fixed;top:22px;right:34px;z-index:6;font-family:'Britti Sans',Georgia,serif;font-size:15px;letter-spacing:.42em;color:#4d4639}
   #compass{position:fixed;top:52px;right:30px;z-index:6;width:46px;height:46px}
   #scalebar{position:fixed;bottom:48px;left:34px;z-index:6;font-family:'Britti Sans',Georgia,serif;font-size:9.5px;letter-spacing:.14em;color:#4d4639}
@@ -47,11 +49,21 @@
   var K = document.getElementById('ldInk');
   var DPR = Math.min(2, window.devicePixelRatio || 1);
   var PAPER = '#f8f6ef', TINK = [48, 42, 33];
+  // Set the way an engraver set a cartouche: a centred stack with line-by-line
+  // hierarchy - letterspaced roman capitals for the key phrases, italic for the
+  // connecting prose - between small engraved rules. The face is IM Fell English,
+  // the 17th-century types this project's plate lettering began with.
   var ROUNDS = [
-    'Long before the Barzanis became an influential political household in modern Iraqi Kurdistan,',
-    'they were sheikhs in a remote mountain village.',
-    'Their authority began in a small Sufi lodge,',
-    'among poor peasants, rural communities, disciples, and rival tribes.'
+    [ { k: 'c', t: 'Long before', s: 27 },
+      { k: 'i', t: 'the Barzanis became an influential', s: 40 },
+      { k: 'i', t: 'political household', s: 40 },
+      { k: 'c', t: 'in modern Iraqi Kurdistan,', s: 24 } ],
+    [ { k: 'i', t: 'they were sheikhs in', s: 40 },
+      { k: 'c', t: 'a remote mountain village.', s: 30 } ],
+    [ { k: 'i', t: 'Their authority began in', s: 40 },
+      { k: 'c', t: 'a small Sufi lodge,', s: 30 } ],
+    [ { k: 'i', t: 'among poor peasants, rural communities,', s: 38 },
+      { k: 'i', t: 'disciples, and rival tribes.', s: 38 } ]
   ];
   function h2(x, y) { var v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return v - Math.floor(v); }
   function vn(x, y) {
@@ -115,24 +127,40 @@
   }
 
   // the ink: same engine as the sentences were tuned on
-  var IW = 1020, IH = 375; K.width = IW; K.height = IH;
+  var IW = 1020, IH = 430; K.width = IW; K.height = IH;
   var kctx = K.getContext('2d'), fr = kctx.createImageData(IW, IH);
-  function buildRound(text, seed) {
+  function buildRound(lines, seed) {
     var c = document.createElement('canvas'); c.width = IW; c.height = IH;
     var x = c.getContext('2d');
     x.fillStyle = '#000';
-    x.font = '500 42px "Britti Sans", Georgia, serif';
-    if ('letterSpacing' in x) x.letterSpacing = '4.5px';
     x.textAlign = 'center';
-    var words = text.toUpperCase().split(' '), lines = [], line = '';
-    for (var wI = 0; wI < words.length; wI++) {
-      var trial = line ? line + ' ' + words[wI] : words[wI];
-      if (x.measureText(trial).width > IW - 95 && line) { lines.push(line); line = words[wI]; }
-      else line = trial;
+    var canLS = 'letterSpacing' in x;
+    function setLine(ln) {
+      var sz = ln.s, ls = ln.k === 'c' ? sz * 0.34 : 0.5, txt = ln.k === 'c' ? ln.t.toUpperCase() : ln.t;
+      for (;;) {
+        x.font = (ln.k === 'c' ? '400 ' : 'italic 400 ') + sz + 'px "IM Fell English", Georgia, serif';
+        if (canLS) x.letterSpacing = ls + 'px';
+        if (x.measureText(txt).width <= IW - 80 || sz <= 18) break;
+        sz -= 2; ls = ln.k === 'c' ? sz * 0.34 : 0.5;
+      }
+      return { txt: txt, lh: Math.round(sz * (ln.k === 'c' ? 1.55 : 1.35)), ls: ls };
     }
-    lines.push(line);
-    var lh = 68, y0 = IH / 2 - (lines.length - 1) * lh / 2 + 14;
-    for (var li = 0; li < lines.length; li++) x.fillText(lines[li], IW / 2, y0 + li * lh);
+    // measure the stack, then centre it with an engraved rule above and below
+    var RULE = 30, hgt = RULE * 2, mets = [];
+    for (var li = 0; li < lines.length; li++) { var m = setLine(lines[li]); mets.push(m); hgt += m.lh; }
+    var y = (IH - hgt) / 2 + RULE;
+    function rule(ry) {
+      x.fillRect(IW / 2 - 105, ry - 0.7, 210, 1.4);
+      x.save(); x.translate(IW / 2, ry); x.rotate(Math.PI / 4); x.fillRect(-3.4, -3.4, 6.8, 6.8); x.restore();
+    }
+    rule(y - RULE / 2 - 4);
+    for (li = 0; li < lines.length; li++) {
+      var m2 = setLine(lines[li]);
+      // trailing tracking after the last capital shifts a centred line; compensate
+      x.fillText(m2.txt, IW / 2 + (lines[li].k === 'c' ? m2.ls / 2 : 0), y + m2.lh * 0.72);
+      y += m2.lh;
+    }
+    rule(y + RULE / 2 - 6);
     var glyph = x.getImageData(0, 0, IW, IH);
     function mk(off) {
       var f2 = new Float32Array(IW * IH), i, j, mn = 1e9, mx = -1e9, v;
@@ -160,7 +188,8 @@
   }
   // as soon as it can: the moment the face is resident, or 500 ms if it stalls
   Promise.race([
-    document.fonts.load('500 42px "Britti Sans"'),
+    Promise.all([document.fonts.load('italic 40px "IM Fell English"'),
+                 document.fonts.load('400 30px "IM Fell English"')]),
     new Promise(function (res) { setTimeout(res, 300); })
   ]).then(buildAll, buildAll);
   function paintInk(rd, reveal, field) {
