@@ -50,6 +50,35 @@
     padding:6px;opacity:.75}
   #snd:hover{opacity:1}
   #snd svg{display:block}
+  /* ---------- the chambers: map moment text, and the paper pages ---------- */
+  #vpara{position:fixed;left:50%;bottom:9vh;transform:translateX(-50%) translateY(12px);z-index:12;
+    width:min(88vw,720px);text-align:center;font-family:'IM Fell English',Georgia,serif;
+    color:#30291f;opacity:0;pointer-events:none;transition:opacity 1.6s,transform 1.6s}
+  #vpara.on{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0)}
+  #vpara p{font-size:19.5px;line-height:1.72;margin:0 0 26px;
+    text-shadow:0 0 22px #f8f6ef,0 0 10px #f8f6ef,0 0 5px #f8f6ef}
+  .cont{background:none;border:none;border-bottom:1px solid rgba(77,70,57,.45);
+    font-family:'IM Fell English',Georgia,serif;font-size:12.5px;letter-spacing:.34em;
+    color:#4d4639;cursor:pointer;padding:6px 4px;text-transform:uppercase;opacity:.85}
+  .cont:hover{opacity:1;border-color:#a5301f;color:#a5301f}
+  #chamber{position:fixed;inset:0;z-index:30;overflow-y:auto;background:#f8f6ef;
+    opacity:0;pointer-events:none;transition:opacity .6s}
+  #chamber.on{opacity:1;pointer-events:auto}
+  .ch-wrap{width:min(90vw,680px);margin:0 auto;padding:15vh 0 18vh;text-align:center;
+    font-family:'IM Fell English',Georgia,serif;color:#30291f}
+  .ch-kick{font-size:12.5px;letter-spacing:.34em;color:#4d4639;text-transform:uppercase}
+  .ch-line{width:1px;height:74px;background:rgba(77,70,57,.5);margin:38px auto}
+  .ch-title{font-size:clamp(54px,7vw,92px);letter-spacing:.12em;line-height:1.14;
+    margin:0 0 10vh;font-weight:400}
+  .ch-body p{font-size:19.5px;line-height:1.85;text-align:center;margin:0 0 2.2em}
+  .ch-body i{font-style:italic}
+  .ch-fig{margin:4.5em auto}
+  .ch-fig .mat2{background:#efece2;padding:13px;box-shadow:0 0 0 1px rgba(77,70,57,.4);
+    display:inline-block;max-width:480px}
+  .ch-fig img{display:block;width:100%;filter:grayscale(1) sepia(.16) contrast(.94) brightness(1.02)}
+  .ch-fig figcaption{font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+    color:#4d4639;margin-top:10px;line-height:1.8}
+  .ch-end{margin-top:8vh}
 </style>
 </head>
 <body>
@@ -3705,6 +3734,7 @@ renderer.setAnimationLoop(() => {
   // the loading sheet above waits for this: by the third frame the shaders are
   // compiled and the page beneath the paper is genuinely alive, not a black beat
   if (++__frames === 3) window.__atlasReady = true;
+  if (window.__chamberPaused) return;   // a paper chamber covers the page; rest the GPU
   controls.update();
   keepAboveGround();
   updateFrame();
@@ -3776,6 +3806,7 @@ renderer.setAnimationLoop(() => {
   camera.position.add(PTR.off);
   PTR.had = true;
   if (window.__aliveTick) window.__aliveTick(tNow);
+  if (window.__chamberTick) window.__chamberTick(tNow);
   renderPigment();
   renderer.setRenderTarget(rt);
   renderer.render(scene, camera);
@@ -4005,7 +4036,7 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
     if (!aliveNow()) { ring.visible = false; zname.style.opacity = 0; return; }
 
     // idle: 25 seconds of silence and the tour begins
-    if (mode === 'free' && !tour && !window.__storyBegunFlag &&
+    if (mode === 'free' && !tour && !window.__storyBegunFlag && !window.__chamberBusy &&
         performance.now() - lastInput > 25000 && !document.hidden) {
       tour = { i: 0, holdUntil: 0 };
       controls.enabled = false;
@@ -4013,9 +4044,12 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
       tourNext();
     }
 
-    // hover: which place is under the pointer
+    // hover: which place is under the pointer. GATED OFF at Rebaz's direction -
+    // the mechanism is a keeper (see memory: zone-focus-capability) but the sheet
+    // stays clean until he chooses its new use.
+    const ZONES_ON = false;
     hoverZone = null;
-    if (mode === 'free' && !tour && groundHit(hit)) {
+    if (ZONES_ON && mode === 'free' && !tour && groundHit(hit)) {
       for (const z of ZONES) {
         if (Math.hypot(hit.x - z.x, hit.z - z.z) < z.r) { hoverZone = z; break; }
       }
@@ -4129,6 +4163,152 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
     };
   })();
   window.__sndTick = () => snd.tick();
+}
+
+
+/* ============================================================
+   THE CHAMBERS — the story as an alternation, at Rebaz's design.
+   The map is clean: no marks, no rings, no panels. After the
+   arrival, ONE paragraph stands quietly over the plate with a
+   CONTINUE; the map stays fully explorable behind it. CONTINUE
+   lifts the camera away through the clouds into a clean paper
+   page in the Chartogne register - kicker, hairline, great
+   title, centred column, a plate - and its own CONTINUE brings
+   the reader back down through the clouds to the living map.
+   One atlas; the story happens ON it.
+   ============================================================ */
+{
+  const Q2 = new URLSearchParams(location.search);
+  const STORY_ON = !Q2.has('plate') && !Q2.has('map');
+  if (STORY_ON) {
+
+    // ----- chamber I: the paragraph over the living map -----
+    const vp = document.createElement('div');
+    vp.id = 'vpara';
+    vp.innerHTML = `<p>Barzan is a small village that lies in the far northwestern corner
+      of Erbil province, close to the borders of both Iran and Turkey. Before the
+      emergence of the Barzani sheikhdom, it was a small village situated within the
+      wider sphere of the Zebari tribe. The ancestors of the Barzanis themselves
+      belonged to this broader Zebari world. Yet over time, the village would become
+      something far more significant than a geographical location. It would lend its
+      name to a religious tradition and eventually a political movement.</p>
+      <button class="cont" id="vcont">Continue</button>`;
+    document.body.appendChild(vp);
+
+    // ----- chamber II: the paper page -----
+    const ch = document.createElement('div');
+    ch.id = 'chamber';
+    ch.innerHTML = `<div class="ch-wrap">
+      <div class="ch-kick">The House of Barzani</div>
+      <div class="ch-line"></div>
+      <h1 class="ch-title">THE<br>TAKYA</h1>
+      <div class="ch-body">
+        <p>The foundations of that transformation were laid in the late eighteenth
+        century by Sheikh Taj al-Din, who established a <i>takya</i> in Barzan and gave
+        the village its first organized religious identity. Leadership subsequently
+        passed through several generations before reaching Sheikh Abdul Rahman, whose
+        adoption of the Naqshbandi order between 1820 and 1825 is generally regarded as
+        the institutional beginning of the Barzani sheikhdom.</p>
+        <figure class="ch-fig"><div class="mat2">
+          <img src="assets/01-barzan-locator-map.png" alt="Barzan on the map: the far northwestern corner of Erbil province">
+          <figcaption>Barzan, northwestern Erbil province</figcaption>
+        </div></figure>
+        <p>Following Abdul Rahman&#8217;s death, leadership passed to Sheikh Abdul Salam I
+        and later to his son Sheikh Muhammad. Under Sheikh Muhammad, Barzan&#8217;s
+        influence expanded beyond purely religious affairs and began to acquire a
+        broader social role. When he died in 1903, succession passed to his son, Sheikh
+        Abdul Salam II, who would become one of the first Barzani leaders to connect the
+        sheikhdom&#8217;s authority with emerging Kurdish political aspirations. His
+        execution by Ottoman authorities in 1914 marked a turning point. Leadership then
+        moved to his younger brother, Sheikh Ahmed, regarded as the last spiritual
+        leader of Barzan before the religious sheikhdom gradually gave way to more
+        explicitly political forms of leadership.</p>
+        <p>Barzan has never functioned solely as a tribe in the conventional Kurdish
+        sense and it differed from many neighboring Kurdish religious houses. Unlike the
+        sheikhly families of Nehri or the major Qadiri orders, the sheikhs of Barzan
+        never developed into a wealthy landed aristocracy. Their influence rested
+        primarily on personal charisma, religious prestige, and the devotion of their
+        followers. This distinction would profoundly shape the character of the
+        movement.</p>
+      </div>
+      <div class="ch-end"><button class="cont" id="chcont">Continue</button></div>
+    </div>`;
+    document.body.appendChild(ch);
+    // the paper page carries the sheet's tooth, like every other paper in the site
+    {
+      const t = document.createElement('canvas'); t.width = t.height = 192;
+      const x2 = t.getContext('2d'), d2 = x2.createImageData(192, 192);
+      const hh = (a, b2) => { const v = Math.sin(a * 127.1 + b2 * 311.7) * 43758.5453; return v - Math.floor(v); };
+      for (let i = 0; i < 192 * 192; i++) {
+        const gx = i % 192, gy = (i / 192) | 0;
+        const nv = hh(gx * 0.43, gy * 0.43) * 0.6 + hh(gx * 0.18 + 9, gy * 0.18 + 9) * 0.4;
+        d2.data[i * 4] = 68; d2.data[i * 4 + 1] = 61; d2.data[i * 4 + 2] = 50;
+        d2.data[i * 4 + 3] = nv > 0.66 ? (nv - 0.66) * 110 : 0;
+      }
+      x2.putImageData(d2, 0, 0);
+      ch.style.backgroundImage = 'url(' + t.toDataURL() + ')';
+    }
+
+    // ----- the two flights: away into the clouds, and back down -----
+    const AWAY = { p: [CX + 1500, 0, CZ + 1750], t: [CX, 0, CZ] };   // y filled at flight time
+    const REST = { p: [CX + 470, 0, CZ + 640] };
+    let flight2 = null;   // { t0, T, from{p,t}, to{p,t}, fogTo, onDone }
+    function fly2(toP, toT, T, fogFrom, fogTo, onDone) {
+      flight2 = {
+        t0: clock.getElapsedTime(), T, onDone, fogFrom, fogTo,
+        p0: camera.position.clone(), t0v: controls.target.clone(),
+        p1: new THREE.Vector3(toP[0], toP[1], toP[2]),
+        t1v: new THREE.Vector3(toT[0], toT[1], toT[2]),
+      };
+    }
+    window.__chamberTick = function (tNow) {
+      if (!flight2) return;
+      let u = (tNow - flight2.t0) / flight2.T;
+      if (u >= 1) u = 1;
+      const e2 = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+      camera.position.lerpVectors(flight2.p0, flight2.p1, e2);
+      camera.position.y += Math.sin(e2 * Math.PI) * 90;
+      controls.target.lerpVectors(flight2.t0v, flight2.t1v, e2);
+      camera.lookAt(controls.target);
+      // the clouds do the transition: the lens fog runs to a whiteout and back
+      compMat.uniforms.uFogDepth.value = flight2.fogFrom + (flight2.fogTo - flight2.fogFrom) * e2;
+      compMat.uniforms.uFogStart.value = 0.13 + (-0.22 - 0.13) * (flight2.fogTo > 0.9 ? e2 : 1 - e2);
+      if (u >= 1) { const cb = flight2.onDone; flight2 = null; if (cb) cb(); }
+    };
+
+    // ----- the sequence -----
+    const arm = setInterval(() => {
+      if (!window.__aliveOn) return;
+      clearInterval(arm);
+      window.__chamberBusy = true;             // the idle tour waits for the story
+      setTimeout(() => vp.classList.add('on'), 1100);
+    }, 250);
+
+    document.getElementById('vcont').addEventListener('click', () => {
+      if (window.__sndTick) window.__sndTick();
+      vp.classList.remove('on');
+      controls.enabled = false;
+      controls.autoRotate = false;
+      const hAway = hTown + 1350;
+      fly2([AWAY.p[0], hAway, AWAY.p[2]], [CX, hTown + 10, CZ], 4.4, P.fogDepth, 0.97, () => {
+        ch.classList.add('on');
+        setTimeout(() => { window.__chamberPaused = true; }, 650);
+      });
+    });
+
+    document.getElementById('chcont').addEventListener('click', () => {
+      if (window.__sndTick) window.__sndTick();
+      window.__chamberPaused = false;
+      ch.classList.remove('on');
+      ch.scrollTop = 0;
+      fly2([REST.p[0], hTown + 430, REST.p[2]], [CX, hTown + 10, CZ], 4.4, 0.97, P.fogDepth, () => {
+        controls.enabled = true;
+        controls.autoRotate = true;
+        controls.update();
+        window.__chamberBusy = false;          // the map is the reader's again
+      });
+    });
+  }
 }
 
 </script>
