@@ -65,7 +65,7 @@
   #chamber{position:fixed;inset:0;z-index:30;overflow-y:auto;background:#f8f6ef;
     opacity:0;pointer-events:none;transition:opacity .6s}
   #chamber.on{opacity:1;pointer-events:auto}
-  .ch-wrap{width:min(90vw,680px);margin:0 auto;padding:15vh 0 18vh;text-align:center;
+  .ch-wrap{width:min(90vw,680px);margin:0 auto;padding:7vh 0 18vh;text-align:center;
     font-family:'IM Fell English',Georgia,serif;color:#30291f}
   .ch-kick{font-size:12.5px;letter-spacing:.34em;color:#4d4639;text-transform:uppercase}
   .ch-line{width:1px;height:74px;background:rgba(77,70,57,.5);margin:38px auto}
@@ -83,11 +83,14 @@
   #goback{position:fixed;left:34px;bottom:14px;z-index:31;opacity:0;pointer-events:none;
     transition:opacity .5s}
   #goback.vis{opacity:.85;pointer-events:auto}
-  #takline{position:fixed;width:1px;height:24vh;background:rgba(66,58,47,.8);z-index:29;
-    transform-origin:bottom;transform:scaleY(0);transition:transform 1.15s ease,opacity .6s;
-    pointer-events:none}
-  #takline.on{transform:scaleY(1)}
-  #takline.off{opacity:0}
+  /* the chamber header exists twice: fixed over the live scene, then absorbed into
+     the page at the identical position - the reader never sees the hand-off */
+  #chHead{position:fixed;left:0;right:0;top:0;padding-top:7vh;text-align:center;z-index:29;
+    pointer-events:none;font-family:'IM Fell English',Georgia,serif;color:#30291f}
+  #chHead .bloomer{opacity:0;filter:blur(7px);transition:opacity 1.3s,filter 1.3s}
+  #chHead.on .bloomer{opacity:1;filter:blur(0)}
+  #chHead .ch-line{transform:scaleY(0);transform-origin:top;transition:transform 1.15s ease .2s}
+  #chHead.on .ch-line{transform:scaleY(1)}
 </style>
 </head>
 <body>
@@ -289,10 +292,11 @@
   skipBtn.addEventListener('click', function () {
     if (skipping) return;
     skipping = true;
-    window.__skipIntro = true;
-    window.__ink1 = true;
+    window.__ink1 = true;                 // release the module's text-first wait
+    kctx.clearRect(0, 0, K.width, K.height);
     var go = function () {
-      if (window.__goRestStance) window.__goRestStance();
+      // the SAME doorway as the full intro: the sheet erases and the spiral
+      // through the clouds begins - skipping skips the sentences, never the arrival
       if (wipeAcc < 0) { wipeAcc = acc; window.__loaderWipeAt = true; }
     };
     if (window.__atlasReady) go();
@@ -4223,9 +4227,11 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
     const ch = document.createElement('div');
     ch.id = 'chamber';
     ch.innerHTML = `<div class="ch-wrap">
-      <div class="ch-kick">The House of Barzani</div>
-      <div class="ch-line"></div>
-      <h1 class="ch-title">THE<br>TAKYA</h1>
+      <div id="chInflow" style="visibility:hidden">
+        <div class="ch-kick">The House of Barzani</div>
+        <div class="ch-line"></div>
+        <h1 class="ch-title">THE<br>TAKYA</h1>
+      </div>
       <div class="ch-body">
         <p>The foundations of that transformation were laid in the late eighteenth
         century by Sheikh Taj al-Din, who established a <i>takya</i> in Barzan and gave
@@ -4306,7 +4312,6 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
         camera.lookAt(controls.target);
         if (u >= 1) { const cb = flight2.onDone; flight2 = null; if (cb) cb(); }
       }
-      if (taklineTrack) trackTakline();
       if (eraser) {
         let u = (tNow - eraser.t0) / eraser.T;
         if (u >= 1) u = 1;
@@ -4318,27 +4323,23 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
 
     // the mosque: the takya's descendant, and the story's first destination
     const MQ = { x: -127, z: -104 };
-    const takline = document.createElement('div');
-    takline.id = 'takline';
-    document.body.appendChild(takline);
-    let taklineTrack = false;
-    const _mq = new THREE.Vector3();
-    function trackTakline() {
-      // pinned to the top of the minaret, re-projected every frame so the line
-      // stands ON the drawing, not on the glass
-      const gy = sampleH(MQ.x, -MQ.z);
-      _mq.set(MQ.x, gy + 14, MQ.z).project(camera);
-      takline.style.left = ((_mq.x + 1) / 2 * innerWidth) + 'px';
-      takline.style.bottom = (innerHeight - (1 - (_mq.y + 1) / 2) * innerHeight) + 'px';
-    }
+    // the fixed twin of the page header, shown over the living mosque
+    const chHead = document.createElement('div');
+    chHead.id = 'chHead';
+    chHead.innerHTML = `<div class="ch-kick bloomer">The House of Barzani</div>
+      <div class="ch-line"></div>
+      <h1 class="ch-title bloomer">THE<br>TAKYA</h1>`;
+    chHead.style.display = 'none';
+    document.body.appendChild(chHead);
+    const chIn = () => ch.querySelector('#chInflow');
     function mosqueStance() {
       // in front of the mosque, as close as the ground allows: street level,
       // the minaret overhead
       const gy = sampleH(MQ.x, -MQ.z);
       const az = Math.atan2(camera.position.z - MQ.z, camera.position.x - MQ.x);
       return {
-        p: [MQ.x + Math.cos(az) * 48, gy + 16, MQ.z + Math.sin(az) * 48],
-        t: [MQ.x, gy + 7, MQ.z],
+        p: [MQ.x + Math.cos(az) * 48, gy + 20, MQ.z + Math.sin(az) * 48],
+        t: [MQ.x, gy + 34, MQ.z],   // aim high: the mosque settles into the LOWER half
       };
     }
 
@@ -4349,30 +4350,31 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
       vp.classList.remove('on');
       controls.enabled = false;
       controls.autoRotate = false;
-      PTR.x = 0; PTR.y = 0;                 // the parallax settles; the line must stand still
+      PTR.x = 0; PTR.y = 0;                 // the parallax settles under the standing title
       const ms = mosqueStance();
       fly2(ms.p, ms.t, 4.2, () => {
-        // before the mosque: a hairline inks UPWARD from the minaret - the same line
-        // that stands above THE TAKYA on the page that follows
+        // before the mosque, WHILE THE DRAWING STILL STANDS: the kicker blooms, the
+        // hairline inks downward, THE TAKYA rises - the page's own header, over the
+        // living scene, with the mosque holding the lower half of the frame
         setTimeout(() => {
-          taklineTrack = true;
-          trackTakline();
-          takline.classList.remove('off');
-          takline.classList.add('on');
+          chHead.style.display = '';
+          requestAnimationFrame(() => chHead.classList.add('on'));
           setTimeout(() => {
-            // and the colours of the ink go away: the drawing washes off the sheet
-            // around the mosque, leaving the clean paper the text stands on
-            erase(1, 0, 2.3, () => {
+            // then the colours of the ink go away, SLOWLY, beneath the standing
+            // title: the drawing washes off the sheet and only paper remains
+            erase(1, 0, 3.0, () => {
               ch.classList.add('on'); ch.scrollTop = 0;
-              takline.classList.add('off');
               setTimeout(() => {
+                // the hand-off: the in-flow header takes over at the identical
+                // position and the fixed twin steps aside - no seam to see
+                chIn().style.visibility = 'visible';
+                chHead.style.display = 'none';
+                chHead.classList.remove('on');
                 window.__chamberPaused = true;
-                taklineTrack = false;
-                takline.classList.remove('on');
                 busy = false; state = 1; showBack();
-              }, 650);
+              }, 700);
             });
-          }, 1300);
+          }, 1650);
         }, 380);
       });
     }
@@ -4381,6 +4383,9 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
       busy = true; showBack();
       if (window.__sndTick) window.__sndTick();
       window.__chamberPaused = false;
+      chHead.style.display = 'none';
+      chHead.classList.remove('on');
+      chIn().style.visibility = 'hidden';
       window.__revealOverride = 0;          // the sheet is bare paper; the jump is invisible
       camera.position.set(CX + 470, hTown + 430, CZ + 640);
       controls.target.set(CX, hTown + 10, CZ);
@@ -4413,7 +4418,7 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
       if (!window.__aliveOn) return;
       clearInterval(arm);
       window.__chamberBusy = true;
-      setTimeout(() => vp.classList.add('on'), 1100);
+      setTimeout(() => vp.classList.add('on'), 600);
     }, 250);
   }
 }
