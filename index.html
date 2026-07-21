@@ -85,7 +85,7 @@
   #goback.vis{opacity:.85;pointer-events:auto}
   /* the chamber header exists twice: fixed over the live scene, then absorbed into
      the page at the identical position - the reader never sees the hand-off */
-  #chHead{position:fixed;left:0;right:0;top:0;padding-top:7vh;text-align:center;z-index:29;
+  #chHead{position:fixed;left:0;right:0;top:0;padding-top:7vh;text-align:center;z-index:32;
     pointer-events:none;font-family:'IM Fell English',Georgia,serif;color:#30291f}
   #chHead .bloomer{opacity:0;filter:blur(7px);transition:opacity 1.3s,filter 1.3s}
   #chHead.on .bloomer{opacity:1;filter:blur(0)}
@@ -2627,11 +2627,10 @@ function addLabels() {
           varying float vDist;
           void main() {
             float ink = texture2D(tText, vUv).r * uStrength;
-            // The name belongs to ARRIVAL. It is standing when the bird lands (the
-            // intro settles ~900 m out) and through the whole orbiting rest stance;
-            // it dissolves at true distance, and again before you can walk into the
-            // letters.
-            ink *= smoothstep(230.0, 420.0, vDist) * (1.0 - smoothstep(1050.0, 1500.0, vDist));
+            // The name is READ FROM AFAR, like any name on a map: it stands through
+            // the whole spiral approach and the resting orbit, and steps aside only
+            // when the camera comes close enough that it is no longer needed.
+            ink *= smoothstep(300.0, 560.0, vDist);
             // WRITE DEPTH WHERE THE LETTERS ARE. Without it the composite reads this
             // patch as empty sky and lays paper straight over the name, which is why
             // BARZAN kept disappearing behind the fog.
@@ -4333,13 +4332,17 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
     document.body.appendChild(chHead);
     const chIn = () => ch.querySelector('#chInflow');
     function mosqueStance() {
-      // in front of the mosque, as close as the ground allows: street level,
-      // the minaret overhead
+      // close before the mosque, from ABOVE, looking down: the village ground is the
+      // backdrop and the mosque sits low in the frame. (Aiming upward from street
+      // level put SKY behind the mosque - the glitch Rebaz saw.) The camera height
+      // also clears the terrain under the camera, so nothing nudges it mid-hold.
       const gy = sampleH(MQ.x, -MQ.z);
       const az = Math.atan2(camera.position.z - MQ.z, camera.position.x - MQ.x);
+      const cx2 = MQ.x + Math.cos(az) * 56, cz2 = MQ.z + Math.sin(az) * 56;
+      const cy = Math.max(gy + 40, sampleH(cx2, -cz2) + 20);
       return {
-        p: [MQ.x + Math.cos(az) * 48, gy + 20, MQ.z + Math.sin(az) * 48],
-        t: [MQ.x, gy + 34, MQ.z],   // aim high: the mosque settles into the LOWER half
+        p: [cx2, cy, cz2],
+        t: [MQ.x, gy + 4, MQ.z],
       };
     }
 
