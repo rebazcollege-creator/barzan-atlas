@@ -51,12 +51,13 @@
   #snd:hover{opacity:1}
   #snd svg{display:block}
   /* ---------- the chambers: map moment text, and the paper pages ---------- */
-  #vpara{position:fixed;left:50%;bottom:9vh;transform:translateX(-50%) translateY(12px);z-index:12;
-    width:min(88vw,720px);text-align:center;font-family:'IM Fell English',Georgia,serif;
-    color:#30291f;opacity:0;pointer-events:none;transition:opacity 1.6s,transform 1.6s}
+  #vpara{position:fixed;left:50%;bottom:8vh;transform:translateX(-50%) translateY(12px);z-index:12;
+    width:min(88vw,700px);text-align:center;font-family:'IM Fell English',Georgia,serif;
+    color:#30291f;opacity:0;pointer-events:none;transition:opacity 1.6s,transform 1.6s;
+    background:#f8f6ef;box-shadow:0 0 0 1px rgba(77,70,57,.35),0 2px 24px rgba(77,70,57,.14);
+    padding:30px 42px 26px}
   #vpara.on{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0)}
-  #vpara p{font-size:19.5px;line-height:1.72;margin:0 0 26px;
-    text-shadow:0 0 22px #f8f6ef,0 0 10px #f8f6ef,0 0 5px #f8f6ef}
+  #vpara p{font-size:18.5px;line-height:1.7;margin:0 0 22px}
   .cont{background:none;border:none;border-bottom:1px solid rgba(77,70,57,.45);
     font-family:'IM Fell English',Georgia,serif;font-size:12.5px;letter-spacing:.34em;
     color:#4d4639;cursor:pointer;padding:6px 4px;text-transform:uppercase;opacity:.85}
@@ -79,6 +80,9 @@
   .ch-fig figcaption{font-size:12px;letter-spacing:.16em;text-transform:uppercase;
     color:#4d4639;margin-top:10px;line-height:1.8}
   .ch-end{margin-top:8vh}
+  #goback{position:fixed;left:34px;bottom:14px;z-index:31;opacity:0;pointer-events:none;
+    transition:opacity .5s}
+  #goback.vis{opacity:.85;pointer-events:auto}
 </style>
 </head>
 <body>
@@ -3795,8 +3799,9 @@ renderer.setAnimationLoop(() => {
   }
   groundMat.uniforms.uBoilT.value = __bt;
   // the sheet inks itself in on instant entrances
-  compMat.uniforms.uReveal.value = window.__revealFrom
-    ? Math.min(1, (performance.now() - window.__revealFrom) / 2400) : 1;
+  compMat.uniforms.uReveal.value = window.__revealOverride != null
+    ? window.__revealOverride
+    : (window.__revealFrom ? Math.min(1, (performance.now() - window.__revealFrom) / 2400) : 1);
   // POINTER PARALLAX: the plate leans a few metres toward the reader's attention,
   // even while orbiting - the cheapest possible 'it noticed me'
   PTR.sx += (PTR.x - PTR.sx) * 0.045;
@@ -4168,13 +4173,12 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
 
 /* ============================================================
    THE CHAMBERS — the story as an alternation, at Rebaz's design.
-   The map is clean: no marks, no rings, no panels. After the
-   arrival, ONE paragraph stands quietly over the plate with a
-   CONTINUE; the map stays fully explorable behind it. CONTINUE
-   lifts the camera away through the clouds into a clean paper
-   page in the Chartogne register - kicker, hairline, great
-   title, centred column, a plate - and its own CONTINUE brings
-   the reader back down through the clouds to the living map.
+   The map is clean. One paragraph stands on a piece of paper over
+   the living plate with a CONTINUE. CONTINUE flies the camera TO
+   THE MOSQUE - the takya's descendant - and there the ink leaves
+   the sheet: the drawing erases to paper around the mosque, and
+   the paper page of THE TAKYA is simply there. Its CONTINUE (or
+   BACK, which is always one step behind you) re-inks the map.
    One atlas; the story happens ON it.
    ============================================================ */
 {
@@ -4182,7 +4186,7 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
   const STORY_ON = !Q2.has('plate') && !Q2.has('map');
   if (STORY_ON) {
 
-    // ----- chamber I: the paragraph over the living map -----
+    // ----- chamber I: the paragraph on its paper, over the living map -----
     const vp = document.createElement('div');
     vp.id = 'vpara';
     vp.innerHTML = `<p>Barzan is a small village that lies in the far northwestern corner
@@ -4234,7 +4238,6 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
       <div class="ch-end"><button class="cont" id="chcont">Continue</button></div>
     </div>`;
     document.body.appendChild(ch);
-    // the paper page carries the sheet's tooth, like every other paper in the site
     {
       const t = document.createElement('canvas'); t.width = t.height = 192;
       const x2 = t.getContext('2d'), d2 = x2.createImageData(192, 192);
@@ -4246,68 +4249,123 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
         d2.data[i * 4 + 3] = nv > 0.66 ? (nv - 0.66) * 110 : 0;
       }
       x2.putImageData(d2, 0, 0);
-      ch.style.backgroundImage = 'url(' + t.toDataURL() + ')';
+      const tooth = 'url(' + t.toDataURL() + ')';
+      ch.style.backgroundImage = tooth;
+      vp.style.backgroundImage = tooth;
     }
 
-    // ----- the two flights: away into the clouds, and back down -----
-    const AWAY = { p: [CX + 1500, 0, CZ + 1750], t: [CX, 0, CZ] };   // y filled at flight time
-    const REST = { p: [CX + 470, 0, CZ + 640] };
-    let flight2 = null;   // { t0, T, from{p,t}, to{p,t}, fogTo, onDone }
-    function fly2(toP, toT, T, fogFrom, fogTo, onDone) {
+    // ----- BACK: always one step behind the reader -----
+    const gb = document.createElement('button');
+    gb.id = 'goback'; gb.className = 'cont'; gb.textContent = 'Back';
+    document.body.appendChild(gb);
+
+    // ----- the machinery -----
+    // state 0: paragraph on the map · 1: the takya page · 2: the free map after
+    let state = 0, busy = false, flight2 = null, eraser = null;
+    function showBack() { gb.classList.toggle('vis', state > 0 && !busy); }
+
+    function fly2(toP, toT, T, onDone) {
       flight2 = {
-        t0: clock.getElapsedTime(), T, onDone, fogFrom, fogTo,
+        t0: clock.getElapsedTime(), T, onDone,
         p0: camera.position.clone(), t0v: controls.target.clone(),
         p1: new THREE.Vector3(toP[0], toP[1], toP[2]),
         t1v: new THREE.Vector3(toT[0], toT[1], toT[2]),
       };
     }
+    function erase(from, to, T, onDone) {
+      eraser = { t0: clock.getElapsedTime(), from, to, T, onDone };
+    }
     window.__chamberTick = function (tNow) {
-      if (!flight2) return;
-      let u = (tNow - flight2.t0) / flight2.T;
-      if (u >= 1) u = 1;
-      const e2 = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
-      camera.position.lerpVectors(flight2.p0, flight2.p1, e2);
-      camera.position.y += Math.sin(e2 * Math.PI) * 90;
-      controls.target.lerpVectors(flight2.t0v, flight2.t1v, e2);
-      camera.lookAt(controls.target);
-      // the clouds do the transition: the lens fog runs to a whiteout and back
-      compMat.uniforms.uFogDepth.value = flight2.fogFrom + (flight2.fogTo - flight2.fogFrom) * e2;
-      compMat.uniforms.uFogStart.value = 0.13 + (-0.22 - 0.13) * (flight2.fogTo > 0.9 ? e2 : 1 - e2);
-      if (u >= 1) { const cb = flight2.onDone; flight2 = null; if (cb) cb(); }
+      if (flight2) {
+        let u = (tNow - flight2.t0) / flight2.T;
+        if (u >= 1) u = 1;
+        const e2 = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+        camera.position.lerpVectors(flight2.p0, flight2.p1, e2);
+        camera.position.y += Math.sin(e2 * Math.PI) * 46;
+        controls.target.lerpVectors(flight2.t0v, flight2.t1v, e2);
+        camera.lookAt(controls.target);
+        if (u >= 1) { const cb = flight2.onDone; flight2 = null; if (cb) cb(); }
+      }
+      if (eraser) {
+        let u = (tNow - eraser.t0) / eraser.T;
+        if (u >= 1) u = 1;
+        const e2 = u * u * (3 - 2 * u);
+        window.__revealOverride = eraser.from + (eraser.to - eraser.from) * e2;
+        if (u >= 1) { const cb = eraser.onDone; eraser = null; if (cb) cb(); }
+      }
     };
 
-    // ----- the sequence -----
-    const arm = setInterval(() => {
-      if (!window.__aliveOn) return;
-      clearInterval(arm);
-      window.__chamberBusy = true;             // the idle tour waits for the story
-      setTimeout(() => vp.classList.add('on'), 1100);
-    }, 250);
+    // the mosque: the takya's descendant, and the story's first destination
+    const MQ = { x: -127, z: -104 };
+    function mosqueStance() {
+      const gy = sampleH(MQ.x, -MQ.z);
+      const az = Math.atan2(camera.position.z - MQ.z, camera.position.x - MQ.x);
+      return {
+        p: [MQ.x + Math.cos(az) * 205, gy + 118, MQ.z + Math.sin(az) * 205],
+        t: [MQ.x, gy + 6, MQ.z],
+      };
+    }
 
-    document.getElementById('vcont').addEventListener('click', () => {
+    function toChamber() {
+      if (busy) return;
+      busy = true; showBack();
       if (window.__sndTick) window.__sndTick();
       vp.classList.remove('on');
       controls.enabled = false;
       controls.autoRotate = false;
-      const hAway = hTown + 1350;
-      fly2([AWAY.p[0], hAway, AWAY.p[2]], [CX, hTown + 10, CZ], 4.4, P.fogDepth, 0.97, () => {
-        ch.classList.add('on');
-        setTimeout(() => { window.__chamberPaused = true; }, 650);
+      const ms = mosqueStance();
+      fly2(ms.p, ms.t, 3.6, () => {
+        // held on the mosque, the ink leaves the sheet
+        setTimeout(() => {
+          erase(1, 0, 1.7, () => {
+            ch.classList.add('on'); ch.scrollTop = 0;
+            setTimeout(() => {
+              window.__chamberPaused = true;
+              busy = false; state = 1; showBack();
+            }, 420);
+          });
+        }, 450);
       });
-    });
-
-    document.getElementById('chcont').addEventListener('click', () => {
+    }
+    function toMap(showPara) {
+      if (busy) return;
+      busy = true; showBack();
       if (window.__sndTick) window.__sndTick();
       window.__chamberPaused = false;
+      window.__revealOverride = 0;          // the sheet is bare paper; the jump is invisible
+      camera.position.set(CX + 470, hTown + 430, CZ + 640);
+      controls.target.set(CX, hTown + 10, CZ);
+      camera.lookAt(controls.target);
       ch.classList.remove('on');
-      ch.scrollTop = 0;
-      fly2([REST.p[0], hTown + 430, REST.p[2]], [CX, hTown + 10, CZ], 4.4, 0.97, P.fogDepth, () => {
-        controls.enabled = true;
-        controls.autoRotate = true;
-        controls.update();
-        window.__chamberBusy = false;          // the map is the reader's again
-      });
+      setTimeout(() => {
+        erase(0, 1, 2.0, () => {            // the ink returns
+          window.__revealOverride = null;
+          controls.enabled = true;
+          controls.autoRotate = true;
+          controls.update();
+          state = showPara ? 0 : 2;
+          window.__chamberBusy = state !== 2;   // the idle tour returns only on the free map
+          if (showPara) vp.classList.add('on');
+          busy = false; showBack();
+        });
+      }, 650);
+    }
+
+    document.getElementById('vcont').addEventListener('click', toChamber);
+    document.getElementById('chcont').addEventListener('click', () => toMap(false));
+    gb.addEventListener('click', () => {
+      if (busy) return;
+      if (state === 1) toMap(true);         // from the takya page back to the paragraph
+      else if (state === 2) toChamber();    // from the free map back to the takya page
     });
+
+    // arrival: the paragraph rises once the map is alive
+    const arm = setInterval(() => {
+      if (!window.__aliveOn) return;
+      clearInterval(arm);
+      window.__chamberBusy = true;
+      setTimeout(() => vp.classList.add('on'), 1100);
+    }, 250);
   }
 }
 
