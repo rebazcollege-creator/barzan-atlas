@@ -15,9 +15,175 @@
   #scalebar{position:fixed;bottom:48px;left:34px;z-index:6;font-family:Georgia,serif;font-size:9.5px;letter-spacing:.14em;color:#4d4639}
   #scalebar .lbl{margin-bottom:3px}
   #scalebar .bar{height:5px;border:1px solid #4d4639;border-top:none;width:120px}
+  /* the loading sheet: bare paper with the map's tooth, over everything while the
+     atlas builds underneath. It leaves by being ERASED, not faded. */
+  #loader{position:fixed;inset:0;z-index:40}
+  #ldC{position:absolute;inset:0}
+  #ldInk{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);
+         width:min(88vw,960px);filter:blur(0.4px)}
 </style>
 </head>
 <body>
+<div id="loader"><canvas id="ldC"></canvas><canvas id="ldInk"></canvas></div>
+<script>
+/* ============================================================
+   THE LOADING SHEET. Bare paper carrying two sentences of the
+   Barzani research while the atlas loads beneath it. The texts
+   arrive as ink blooming into the paper and leave as ink erased
+   from it; when the second has gone AND the atlas has drawn its
+   first frames, the sheet itself is erased the same way and the
+   living map is simply there. Plain script, plain canvas: it is
+   on screen before the module starts fetching data.
+   ============================================================ */
+(function () {
+  if (new URLSearchParams(location.search).has('plate')) {
+    document.getElementById('loader').remove(); return;
+  }
+  var L = document.getElementById('loader');
+  var C = document.getElementById('ldC');
+  var K = document.getElementById('ldInk');
+  var DPR = Math.min(2, window.devicePixelRatio || 1);
+  var PAPER = '#f8f6ef', TINK = [48, 42, 33];
+  var ROUNDS = [
+    'Long before the Barzanis became an influential political household in modern Iraqi Kurdistan, they were sheikhs in a remote mountain village.',
+    'Their authority began in a small Sufi lodge, among poor peasants, rural communities, disciples, and rival tribes.'
+  ];
+  function h2(x, y) { var v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return v - Math.floor(v); }
+  function vn(x, y) {
+    var ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+    var ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+    var a = h2(ix, iy), b = h2(ix + 1, iy), c = h2(ix, iy + 1), d = h2(ix + 1, iy + 1);
+    return a + (b - a) * ux + ((c + (d - c) * ux) - (a + (b - a) * ux)) * uy;
+  }
+
+  // the sheet's tooth: the same recipe as the map's own paper
+  var tile = document.createElement('canvas'); tile.width = tile.height = 256;
+  (function () {
+    var tx = tile.getContext('2d'), td = tx.createImageData(256, 256);
+    for (var i = 0; i < 65536; i++) {
+      var gx = i & 255, gy = i >> 8;
+      var nv = vn(gx / 2.3, gy / 2.3) * 0.6 + vn(gx / 5.7 + 9.1, gy / 5.7 + 9.1) * 0.4;
+      td.data[i * 4] = 68; td.data[i * 4 + 1] = 61; td.data[i * 4 + 2] = 50;
+      td.data[i * 4 + 3] = nv > 0.62 ? (nv - 0.62) * 150 : 0;
+    }
+    tx.putImageData(td, 0, 0);
+  })();
+  var W, H;
+  function size() {
+    W = C.width = Math.round(innerWidth * DPR); H = C.height = Math.round(innerHeight * DPR);
+    C.style.width = innerWidth + 'px'; C.style.height = innerHeight + 'px';
+  }
+  size(); addEventListener('resize', size);
+
+  // the erase field, held small: upscaling is what makes the holes watery
+  var MW = 384, MH = Math.max(2, Math.round(MW * innerHeight / Math.max(1, innerWidth)));
+  var mask = document.createElement('canvas'); mask.width = MW; mask.height = MH;
+  var mx2 = mask.getContext('2d'), mimg = mx2.createImageData(MW, MH);
+  var mfield = new Float32Array(MW * MH);
+  (function () {
+    var mn = 1e9, mx = -1e9, i, j, v;
+    for (j = 0; j < MH; j++) for (i = 0; i < MW; i++) {
+      v = vn(i / 64 + 3.7, j / 64 + 3.7) * 0.62 + vn(i / 15 + 11.1, j / 15 + 11.1) * 0.38;
+      mfield[j * MW + i] = v; if (v < mn) mn = v; if (v > mx) mx = v;
+    }
+    for (i = 0; i < mfield.length; i++) mfield[i] = (mfield[i] - mn) / (mx - mn);
+  })();
+
+  function drawPaper(wipe) {
+    var x = C.getContext('2d');
+    x.globalCompositeOperation = 'source-over';
+    x.fillStyle = PAPER; x.fillRect(0, 0, W, H);
+    x.globalAlpha = 0.5;
+    for (var j = 0; j < H; j += 256) for (var i = 0; i < W; i += 256) x.drawImage(tile, i, j);
+    x.globalAlpha = 1;
+    if (wipe > 0) {
+      var F = 0.20, o = mimg.data, r = wipe * 1.25, k, m;
+      for (k = 0; k < MW * MH; k++) {
+        m = (r - mfield[k]) / F; m = m < 0 ? 0 : m > 1 ? 1 : m; m = m * m * (3 - 2 * m);
+        o[k * 4 + 3] = m * 255;
+      }
+      mx2.putImageData(mimg, 0, 0);
+      x.globalCompositeOperation = 'destination-out';
+      x.drawImage(mask, 0, 0, W, H);
+      x.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  // the ink: same engine as the sentences were tuned on
+  var IW = 1020, IH = 375; K.width = IW; K.height = IH;
+  var kctx = K.getContext('2d'), fr = kctx.createImageData(IW, IH);
+  function buildRound(text, seed) {
+    var c = document.createElement('canvas'); c.width = IW; c.height = IH;
+    var x = c.getContext('2d');
+    x.fillStyle = '#000';
+    x.font = '400 36px Georgia, serif';
+    if ('letterSpacing' in x) x.letterSpacing = '2.2px';
+    x.textAlign = 'center';
+    var words = text.split(' '), lines = [], line = '';
+    for (var wI = 0; wI < words.length; wI++) {
+      var trial = line ? line + ' ' + words[wI] : words[wI];
+      if (x.measureText(trial).width > IW - 105 && line) { lines.push(line); line = words[wI]; }
+      else line = trial;
+    }
+    lines.push(line);
+    var lh = 60, y0 = IH / 2 - (lines.length - 1) * lh / 2 + 12;
+    for (var li = 0; li < lines.length; li++) x.fillText(lines[li], IW / 2, y0 + li * lh);
+    var glyph = x.getImageData(0, 0, IW, IH);
+    function mk(off) {
+      var f2 = new Float32Array(IW * IH), i, j, mn = 1e9, mx = -1e9, v;
+      for (j = 0; j < IH; j++) for (i = 0; i < IW; i++) {
+        v = vn(i / 132 + seed + off, j / 132 + seed + off) * 0.62
+          + vn(i / 31 + seed * 3 + off, j / 31 + seed * 3 + off) * 0.38;
+        f2[j * IW + i] = v; if (v < mn) mn = v; if (v > mx) mx = v;
+      }
+      for (i = 0; i < f2.length; i++) f2[i] = (f2[i] - mn) / (mx - mn);
+      return f2;
+    }
+    return { glyph: glyph, inField: mk(0), outField: mk(17.7) };
+  }
+  var roundData = [buildRound(ROUNDS[0], 5.1), buildRound(ROUNDS[1], 14.8)];
+  function paintInk(rd, reveal, field) {
+    var F = 0.22, g = rd.glyph.data, o = fr.data, i, a, m;
+    for (i = 0; i < IW * IH; i++) {
+      a = g[i * 4 + 3];
+      if (!a) { o[i * 4 + 3] = 0; continue; }
+      m = (reveal - field[i]) / F; m = m < 0 ? 0 : m > 1 ? 1 : m; m = m * m * (3 - 2 * m);
+      o[i * 4] = TINK[0]; o[i * 4 + 1] = TINK[1]; o[i * 4 + 2] = TINK[2];
+      o[i * 4 + 3] = a * m;
+    }
+    kctx.putImageData(fr, 0, 0);
+  }
+
+  var T0 = performance.now();
+  var IN = 2600, HOLD = 4800, OUT = 2100, GAP = 900, OPEN = 700;
+  var CYCLE = IN + HOLD + OUT + GAP, WIPE = 2600, HARD = 45000;
+  var wipeStart = -1, done = false, heldRound = -1;
+  function tick(now) {
+    if (done) return;
+    var t = now - T0;
+    // the rounds run ONCE each; after the second has erased, the sheet waits only
+    // for the atlas (a hard timeout guards a failed load from trapping the page)
+    var textsDone = t > OPEN + CYCLE * 2 - GAP;
+    if (wipeStart < 0) {
+      drawPaper(0);
+      if (t > OPEN && !textsDone) {
+        var tt = t - OPEN, r = tt < CYCLE ? 0 : 1, lt = tt - r * CYCLE, rd = roundData[r];
+        if (lt < IN) { paintInk(rd, lt / IN * 1.25, rd.inField); heldRound = -1; }
+        else if (lt < IN + HOLD) { if (heldRound !== r) { paintInk(rd, 1.25, rd.inField); heldRound = r; } }
+        else if (lt < IN + HOLD + OUT) { paintInk(rd, (1 - (lt - IN - HOLD) / OUT) * 1.25, rd.outField); heldRound = -1; }
+        else if (heldRound !== -9) { kctx.clearRect(0, 0, IW, IH); heldRound = -9; }
+      }
+      if (textsDone && (window.__atlasReady || t > HARD)) wipeStart = now;
+    } else {
+      var w = (now - wipeStart) / WIPE;
+      if (w >= 1) { done = true; L.remove(); return; }
+      drawPaper(w);
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
 <script type="importmap">
   { "imports": { "three": "./vendor/three.module.js" } }
 </script>
@@ -3344,7 +3510,11 @@ function keepAboveGround() {
 }
 
 const _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
+let __frames = 0;
 renderer.setAnimationLoop(() => {
+  // the loading sheet above waits for this: by the third frame the shaders are
+  // compiled and the page beneath the paper is genuinely alive, not a black beat
+  if (++__frames === 3) window.__atlasReady = true;
   controls.update();
   keepAboveGround();
   updateFrame();
