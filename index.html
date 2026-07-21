@@ -12,6 +12,7 @@
   #frame .tick{position:absolute;width:9px;height:9px;border:1px solid rgba(77,70,57,0.6)}
   @font-face{font-family:'Britti Sans';src:url('./fonts/BrittiSans-Regular.woff2') format('woff2');font-weight:400;font-display:swap}
   @font-face{font-family:'Britti Sans';src:url('./fonts/BrittiSans-Medium.woff2') format('woff2');font-weight:500;font-display:swap}
+  @font-face{font-family:'Britti Sans';src:url('./fonts/BrittiSans-Bold.woff2') format('woff2');font-weight:700;font-display:swap}
   #mapbtn{position:fixed;top:22px;right:34px;z-index:6;font-family:'Britti Sans',Georgia,serif;font-size:15px;letter-spacing:.42em;color:#4d4639}
   #compass{position:fixed;top:52px;right:30px;z-index:6;width:46px;height:46px}
   #scalebar{position:fixed;bottom:48px;left:34px;z-index:6;font-family:'Britti Sans',Georgia,serif;font-size:9.5px;letter-spacing:.14em;color:#4d4639}
@@ -120,7 +121,7 @@
     var c = document.createElement('canvas'); c.width = IW; c.height = IH;
     var x = c.getContext('2d');
     x.fillStyle = '#000';
-    x.font = '400 50px "Britti Sans", Georgia, serif';
+    x.font = '700 50px "Britti Sans", Georgia, serif';
     if ('letterSpacing' in x) x.letterSpacing = '2.6px';
     x.textAlign = 'center';
     var words = text.split(' '), lines = [], line = '';
@@ -145,16 +146,16 @@
     }
     return { glyph: glyph, inField: mk(0), outField: mk(17.7) };
   }
-  var roundData = null, T0v = 0;
+  var roundData = null, accB = 0;
   function buildAll() {
     if (roundData) return;
     roundData = [buildRound(ROUNDS[0], 5.1), buildRound(ROUNDS[1], 14.8),
                  buildRound(ROUNDS[2], 23.3), buildRound(ROUNDS[3], 31.9)];
-    T0v = performance.now();
+    accB = acc;
   }
   // as soon as it can: the moment the face is resident, or 500 ms if it stalls
   Promise.race([
-    document.fonts.load('50px "Britti Sans"'),
+    document.fonts.load('700 50px "Britti Sans"'),
     new Promise(function (res) { setTimeout(res, 500); })
   ]).then(buildAll, buildAll);
   function paintInk(rd, reveal, field) {
@@ -169,18 +170,25 @@
     kctx.putImageData(fr, 0, 0);
   }
 
-  var T0 = performance.now();
-  var IN = 1800, HOLD = 2300, OUT = 1400, GAP = 500, OPEN = 150;
+  // THE CLOCK SURVIVES THE BUILD. The atlas assembles synchronously in big blocks
+  // during the first seconds, and every stall froze the paint while the wall clock
+  // ran on - round one lost most of its IN and HOLD to a freeze it never saw. The
+  // choreography now advances on an accumulator credited at most 120 ms per frame:
+  // a two-second stall costs the animation 120 ms, and every sentence lives its
+  // full life whatever the machine is doing.
+  var T0 = performance.now(), last = T0, acc = 0;
+  var IN = 1800, HOLD = 3600, OUT = 1500, GAP = 500, OPEN = 150;
   var CYCLE = IN + HOLD + OUT + GAP, WIPE = 2600, HARD = 45000;
-  var wipeStart = -1, done = false, heldRound = -1;
+  var wipeAcc = -1, done = false, heldRound = -1;
   function tick(now) {
     if (done) return;
     var t = now - T0;
+    acc += Math.min(now - last, 120); last = now;
     // four cuts, each run ONCE; after the last has erased, the sheet waits only
     // for the atlas (a hard timeout guards a failed load from trapping the page)
-    var tv = roundData ? now - T0v + OPEN : -1;
+    var tv = roundData ? acc - accB + OPEN : -1;
     var textsDone = roundData && tv > OPEN + CYCLE * 4 - GAP;
-    if (wipeStart < 0) {
+    if (wipeAcc < 0) {
       drawPaper(0);
       if (roundData && tv > OPEN && !textsDone) {
         var tt = tv - OPEN, r = Math.min(3, Math.floor(tt / CYCLE)), lt = tt - r * CYCLE, rd = roundData[r];
@@ -190,11 +198,11 @@
         else if (heldRound !== -9) { kctx.clearRect(0, 0, IW, IH); heldRound = -9; }
       }
       if (textsDone && (window.__atlasReady || t > HARD)) {
-        wipeStart = now;
-        window.__loaderWipeAt = true;   // the atlas begins its descent as the sheet opens
+        wipeAcc = acc;
+        window.__loaderWipeAt = true;   // the atlas begins its approach as the sheet opens
       }
     } else {
-      var w = (now - wipeStart) / WIPE;
+      var w = (acc - wipeAcc) / WIPE;
       if (w >= 1) { done = true; L.remove(); return; }
       drawPaper(w);
     }
@@ -3539,28 +3547,31 @@ renderer.setAnimationLoop(() => {
   keepAboveGround();
   updateFrame();
   const tNow = clock.getElapsedTime();
-  /* ---------- the arrival: a bird's descent out of the cloud ----------
-     Begins the instant the loading sheet starts to erase, so the map is first seen
-     from inside the fog. The camera falls along a bent path from high above the
-     valley and settles HIGHER AND FURTHER than the old opening stance, with the
-     lens fog easing from a whiteout back to its resting weight as Barzan rises to
-     meet it. Controls stay dead until the bird has landed. */
+  /* ---------- the arrival: a long approach out of the distance ----------
+     Begins the instant the loading sheet starts to erase. The camera comes in from
+     nearly three kilometres out at valley altitude, looking at Barzan the whole
+     way: at that range the aerial dissolve holds the village as a faint suggestion
+     in the air of the page, and it SOLIDIFIES and grows as the distance closes -
+     the drawing literally arrives out of the paper. Cloud grain sweeps past
+     overhead, the lens fog eases from a near-whiteout back to its resting weight,
+     and the bird settles higher and further out than the old opening stance.
+     Controls stay dead until it has landed. */
   if (!__flight && window.__loaderWipeAt && !PLATE) {
     __flight = { t0: tNow };
     controls.enabled = false;
     controls.autoRotate = false;
   }
   if (__flight && !__flight.done) {
-    const FT = 7.5, u0 = Math.min(1, (tNow - __flight.t0) / FT);
+    const FT = 10.5, u0 = Math.min(1, (tNow - __flight.t0) / FT);
     const u = u0 < 0.5 ? 4 * u0 * u0 * u0 : 1 - Math.pow(-2 * u0 + 2, 3) / 2;
     const a = (1 - u) * (1 - u), b = 2 * (1 - u) * u, c = u * u;
     camera.position.set(
-      a * (CX + 160) + b * (CX + 380) + c * (CX + 470),
-      a * (hTown + 2300) + b * (hTown + 950) + c * (hTown + 430),
-      a * (CZ + 520) + b * (CZ + 1180) + c * (CZ + 640));
+      a * (CX + 1900) + b * (CX + 1050) + c * (CX + 470),
+      a * (hTown + 700) + b * (hTown + 590) + c * (hTown + 430),
+      a * (CZ + 2100) + b * (CZ + 1330) + c * (CZ + 640));
     controls.target.set(CX, hTown + 10, CZ);
-    compMat.uniforms.uFogStart.value = -0.35 + (P.fogStart + 0.35) * u;
-    compMat.uniforms.uFogDepth.value = 0.97 + (P.fogDepth - 0.97) * u;
+    compMat.uniforms.uFogStart.value = -0.25 + (P.fogStart + 0.25) * u;
+    compMat.uniforms.uFogDepth.value = 0.95 + (P.fogDepth - 0.95) * u;
     if (u0 >= 1) {
       __flight.done = true;
       controls.enabled = true;
