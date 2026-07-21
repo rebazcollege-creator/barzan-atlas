@@ -83,6 +83,11 @@
   #goback{position:fixed;left:34px;bottom:14px;z-index:31;opacity:0;pointer-events:none;
     transition:opacity .5s}
   #goback.vis{opacity:.85;pointer-events:auto}
+  #takline{position:fixed;width:1px;height:24vh;background:rgba(66,58,47,.8);z-index:29;
+    transform-origin:bottom;transform:scaleY(0);transition:transform 1.15s ease,opacity .6s;
+    pointer-events:none}
+  #takline.on{transform:scaleY(1)}
+  #takline.off{opacity:0}
 </style>
 </head>
 <body>
@@ -3758,16 +3763,31 @@ renderer.setAnimationLoop(() => {
     controls.autoRotate = false;
   }
   if (__flight && !__flight.done) {
-    const FT = 10.5, u0 = Math.min(1, (tNow - __flight.t0) / FT);
-    const u = u0 < 0.5 ? 4 * u0 * u0 * u0 : 1 - Math.pow(-2 * u0 + 2, 3) / 2;
-    const a = (1 - u) * (1 - u), b = 2 * (1 - u) * u, c = u * u;
-    camera.position.set(
-      a * (CX + 1900) + b * (CX + 1050) + c * (CX + 470),
-      a * (hTown + 700) + b * (hTown + 590) + c * (hTown + 430),
-      a * (CZ + 2100) + b * (CZ + 1330) + c * (CZ + 640));
+    const FT = 17.0, u0 = Math.min(1, (tNow - __flight.t0) / FT);
+    const u = 0.5 - 0.5 * Math.cos(Math.PI * u0);   // one long, even glide
+    // THE SPIRAL: the bird circles the valley as it closes, so the whole landscape
+    // TURNS beneath the approach - a 140-degree sweep that ends exactly on the
+    // resting stance. The nature is the show; the village is the destination.
+    const azE = Math.atan2(640, 470), sweep = 2.45;
+    const az = azE - sweep * (1 - u);
+    const dd = 3100 + (794 - 3100) * u;
+    const hh2 = hTown + 760 + (430 - 760) * u;
+    camera.position.set(CX + Math.cos(az) * dd, hh2, CZ + Math.sin(az) * dd);
     controls.target.set(CX, hTown + 10, CZ);
-    compMat.uniforms.uFogStart.value = -0.25 + (P.fogStart + 0.25) * u;
-    compMat.uniforms.uFogDepth.value = 0.95 + (P.fogDepth - 0.95) * u;
+    // THE CLOUDS COME AND GO: the village shows itself faintly, is swallowed by a
+    // bank, shows again a little nearer, is taken again, and only then given -
+    // keyframed cloud banks the flight passes through on its way down
+    const FK = [[0, .975], [.20, .905], [.36, .965], [.52, .885], [.66, .945], [.85, .87], [1, P.fogDepth]];
+    let fg = FK[FK.length - 1][1];
+    for (let k2 = 0; k2 < FK.length - 1; k2++) {
+      if (u >= FK[k2][0] && u <= FK[k2 + 1][0]) {
+        const q = (u - FK[k2][0]) / (FK[k2 + 1][0] - FK[k2][0]);
+        fg = FK[k2][1] + (FK[k2 + 1][1] - FK[k2][1]) * (0.5 - 0.5 * Math.cos(Math.PI * q));
+        break;
+      }
+    }
+    compMat.uniforms.uFogDepth.value = fg;
+    compMat.uniforms.uFogStart.value = P.fogStart - (fg - P.fogDepth) * 2.6;
     if (u0 >= 1) {
       __flight.done = true;
       window.__aliveOn = true;
@@ -4286,6 +4306,7 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
         camera.lookAt(controls.target);
         if (u >= 1) { const cb = flight2.onDone; flight2 = null; if (cb) cb(); }
       }
+      if (taklineTrack) trackTakline();
       if (eraser) {
         let u = (tNow - eraser.t0) / eraser.T;
         if (u >= 1) u = 1;
@@ -4297,12 +4318,27 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
 
     // the mosque: the takya's descendant, and the story's first destination
     const MQ = { x: -127, z: -104 };
+    const takline = document.createElement('div');
+    takline.id = 'takline';
+    document.body.appendChild(takline);
+    let taklineTrack = false;
+    const _mq = new THREE.Vector3();
+    function trackTakline() {
+      // pinned to the top of the minaret, re-projected every frame so the line
+      // stands ON the drawing, not on the glass
+      const gy = sampleH(MQ.x, -MQ.z);
+      _mq.set(MQ.x, gy + 14, MQ.z).project(camera);
+      takline.style.left = ((_mq.x + 1) / 2 * innerWidth) + 'px';
+      takline.style.bottom = (innerHeight - (1 - (_mq.y + 1) / 2) * innerHeight) + 'px';
+    }
     function mosqueStance() {
+      // in front of the mosque, as close as the ground allows: street level,
+      // the minaret overhead
       const gy = sampleH(MQ.x, -MQ.z);
       const az = Math.atan2(camera.position.z - MQ.z, camera.position.x - MQ.x);
       return {
-        p: [MQ.x + Math.cos(az) * 205, gy + 118, MQ.z + Math.sin(az) * 205],
-        t: [MQ.x, gy + 6, MQ.z],
+        p: [MQ.x + Math.cos(az) * 48, gy + 16, MQ.z + Math.sin(az) * 48],
+        t: [MQ.x, gy + 7, MQ.z],
       };
     }
 
@@ -4313,18 +4349,31 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
       vp.classList.remove('on');
       controls.enabled = false;
       controls.autoRotate = false;
+      PTR.x = 0; PTR.y = 0;                 // the parallax settles; the line must stand still
       const ms = mosqueStance();
-      fly2(ms.p, ms.t, 3.6, () => {
-        // held on the mosque, the ink leaves the sheet
+      fly2(ms.p, ms.t, 4.2, () => {
+        // before the mosque: a hairline inks UPWARD from the minaret - the same line
+        // that stands above THE TAKYA on the page that follows
         setTimeout(() => {
-          erase(1, 0, 1.7, () => {
-            ch.classList.add('on'); ch.scrollTop = 0;
-            setTimeout(() => {
-              window.__chamberPaused = true;
-              busy = false; state = 1; showBack();
-            }, 420);
-          });
-        }, 450);
+          taklineTrack = true;
+          trackTakline();
+          takline.classList.remove('off');
+          takline.classList.add('on');
+          setTimeout(() => {
+            // and the colours of the ink go away: the drawing washes off the sheet
+            // around the mosque, leaving the clean paper the text stands on
+            erase(1, 0, 2.3, () => {
+              ch.classList.add('on'); ch.scrollTop = 0;
+              takline.classList.add('off');
+              setTimeout(() => {
+                window.__chamberPaused = true;
+                taklineTrack = false;
+                takline.classList.remove('on');
+                busy = false; state = 1; showBack();
+              }, 650);
+            });
+          }, 1300);
+        }, 380);
       });
     }
     function toMap(showPara) {
