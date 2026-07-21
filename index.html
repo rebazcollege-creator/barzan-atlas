@@ -80,17 +80,17 @@
   .ch-line{width:1px;height:74px;background:rgba(77,70,57,.5);margin:38px auto}
   .ch-title{font-size:clamp(54px,7vw,92px);letter-spacing:.12em;line-height:1.14;
     margin:0 0 10vh;font-weight:400}
-  .ch-body p{font-size:19.5px;line-height:1.85;text-align:center;margin:0 0 2.2em}
+  .ch-body{position:relative;text-align:left;padding-left:60px}
+  .ch-body::before{content:'';position:absolute;left:0;top:6px;bottom:6px;width:1px;
+    background:rgba(77,70,57,.32)}
+  .ch-body p{font-size:19.5px;line-height:1.85;text-align:left;margin:0 0 2.2em}
   .ch-body i{font-style:italic}
-  .ch-sketch{margin:3.5em auto 3.8em;width:min(78%,520px)}
+  .ch-sketch{margin:0 auto 4.2em;width:min(76%,540px);text-align:center}
   .ch-sketch img{display:block;width:100%;opacity:0;filter:blur(9px);
     transition:opacity 1.5s ease,filter 1.5s ease}
   .ch-sketch.seen img{opacity:1;filter:none}
   .ch-skcap{font-size:11.5px;letter-spacing:.26em;text-transform:uppercase;
     color:#8a8172;margin-top:14px;font-style:normal}
-  @media (min-width:1280px){
-    .ch-sketch{float:right;width:360px;margin:.5em -400px 2em 2em}
-  }
   .ch-fig{margin:4.5em auto}
   .ch-fig .mat2{background:#efece2;padding:13px;box-shadow:0 0 0 1px rgba(77,70,57,.4);
     display:inline-block;max-width:480px}
@@ -4262,15 +4262,15 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
         <h1 class="ch-title">THE<br>TAKYA</h1>
       </div>
       <div class="ch-body">
+        <div class="ch-sketch"><img src="assets/takya-sketch.png"
+          alt="An imagined takya: a walled courtyard compound with a single tree, drawn in the plate's engraved hand">
+          <div class="ch-skcap">the takya, as imagined</div></div>
         <p>The foundations of that transformation were laid in the late eighteenth
         century by Sheikh Taj al-Din, who established a <i>takya</i> in Barzan and gave
         the village its first organized religious identity. Leadership subsequently
         passed through several generations before reaching Sheikh Abdul Rahman, whose
         adoption of the Naqshbandi order between 1820 and 1825 is generally regarded as
         the institutional beginning of the Barzani sheikhdom.</p>
-        <div class="ch-sketch"><img src="assets/takya-sketch.png"
-          alt="An imagined takya: a walled courtyard compound with a single tree, drawn in the plate's engraved hand">
-          <div class="ch-skcap">the takya, as imagined</div></div>
         <p>Following Abdul Rahman&#8217;s death, leadership passed to Sheikh Abdul Salam I
         and later to his son Sheikh Muhammad. Under Sheikh Muhammad, Barzan&#8217;s
         influence expanded beyond purely religious affairs and began to acquire a
