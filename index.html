@@ -2649,7 +2649,10 @@ function addLabels() {
     );
     // floating above the roofs — high enough to clear them, low enough to still
     // belong to the village rather than to the sky
-    m.position.set(px0, sampleH(px0, -pz0) + 105, pz0);
+    // seated just above the roofline, not in the sky: when a ridge stands between
+    // the camera and the village it stands between the camera and the NAME too,
+    // and cresting the hill reveals both together. Depth testing does the rest.
+    m.position.set(px0, sampleH(px0, -pz0) + 34, pz0);
     m.frustumCulled = false;
     scene.add(m);
   });
@@ -3827,8 +3830,9 @@ renderer.setAnimationLoop(() => {
     : (window.__revealFrom ? Math.min(1, (performance.now() - window.__revealFrom) / 2400) : 1);
   // POINTER PARALLAX: the plate leans a few metres toward the reader's attention,
   // even while orbiting - the cheapest possible 'it noticed me'
-  PTR.sx += (PTR.x - PTR.sx) * 0.045;
-  PTR.sy += (PTR.y - PTR.sy) * 0.045;
+  const __pfz = window.__parallaxFreeze ? 0 : 1;
+  PTR.sx += (PTR.x * __pfz - PTR.sx) * 0.045;
+  PTR.sy += (PTR.y * __pfz - PTR.sy) * 0.045;
   PTR.off.copy(_right).multiplyScalar(PTR.sx * 6.0);
   PTR.off.y = -PTR.sy * 3.0;
   camera.position.add(PTR.off);
@@ -4353,7 +4357,7 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
       vp.classList.remove('on');
       controls.enabled = false;
       controls.autoRotate = false;
-      PTR.x = 0; PTR.y = 0;                 // the parallax settles under the standing title
+      window.__parallaxFreeze = true;       // the map must not sway under the standing title
       const ms = mosqueStance();
       fly2(ms.p, ms.t, 4.2, () => {
         // before the mosque, WHILE THE DRAWING STILL STANDS: the kicker blooms, the
@@ -4368,13 +4372,21 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
             erase(1, 0, 3.0, () => {
               ch.classList.add('on'); ch.scrollTop = 0;
               setTimeout(() => {
-                // the hand-off: the in-flow header takes over at the identical
-                // position and the fixed twin steps aside - no seam to see
-                chIn().style.visibility = 'visible';
-                chHead.style.display = 'none';
-                chHead.classList.remove('on');
                 window.__chamberPaused = true;
                 busy = false; state = 1; showBack();
+                // THE HAND-OFF HAPPENS ON THE READER'S OWN SCROLL: at rest the fixed
+                // header and its in-flow twin are pixel-identical, so the swap at the
+                // first scrolled pixel cannot be seen - and the title then travels
+                // with the page, as a page's title should.
+                const swap = () => {
+                  if (ch.scrollTop > 1 && chHead.style.display !== 'none') {
+                    chIn().style.visibility = 'visible';
+                    chHead.style.display = 'none';
+                    chHead.classList.remove('on');
+                    ch.removeEventListener('scroll', swap);
+                  }
+                };
+                ch.addEventListener('scroll', swap);
               }, 700);
             });
           }, 1650);
@@ -4397,6 +4409,7 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
       setTimeout(() => {
         erase(0, 1, 2.0, () => {            // the ink returns
           window.__revealOverride = null;
+          window.__parallaxFreeze = false;   // the plate may lean again
           controls.enabled = true;
           controls.autoRotate = true;
           controls.update();
