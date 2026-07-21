@@ -96,6 +96,8 @@ const plate = document.getElementById('plate');
 const fogC = document.getElementById('fog');
 const DPR = Math.min(1.5, window.devicePixelRatio || 1);   // gentle on the machine
 let PW = 0, PH = 0, PXM = 0;
+const toothTile = document.createElement('canvas');
+toothTile.width = toothTile.height = 256;
 
 const px = wx => (wx - CX) * PXM + PW / 2;
 const py = wy => PH / 2 - (wy - CY) * PXM;   // north up
@@ -123,9 +125,9 @@ function drawPlate() {
   x.fillStyle = PAPER;
   x.fillRect(0, 0, PW, PH);
 
-  // the tooth of the sheet: one small noise tile, tiled across
-  const tile = document.createElement('canvas');
-  tile.width = tile.height = 256;
+  // the tooth of the sheet: one small noise tile, tiled across (kept for the photo
+  // plate to reuse)
+  const tile = toothTile;
   const tx = tile.getContext('2d');
   const td = tx.createImageData(256, 256);
   for (let i = 0; i < 256 * 256; i++) {
@@ -312,11 +314,41 @@ function drawPlate() {
   });
 
   // ---- the sheet dissolves at its edges, before the fog ever moves --------------
+  edgeDissolve(x);
+}
+
+function edgeDissolve(x) {
   const g1 = x.createRadialGradient(PW / 2, PH / 2, Math.min(PW, PH) * 0.32, PW / 2, PH / 2, Math.max(PW, PH) * 0.62);
   g1.addColorStop(0, 'rgba(248,246,239,0)');
   g1.addColorStop(1, 'rgba(248,246,239,0.9)');
   x.fillStyle = g1;
   x.fillRect(0, 0, PW, PH);
+}
+
+/* ---------- the real plate, when it exists ----------
+   The drawn fallback above is data-honest but it is not the atlas. When a cropped
+   overhead capture of the atlas itself sits next to this page as plate.jpg, it becomes
+   the sheet: laid down as cover, with the same tooth and the same dissolving edges, so
+   the fog and the ink ride on the real drawing. If the file is absent nothing changes. */
+let plateImg = null;
+function drawPhotoPlate() {
+  if (!plateImg) return;
+  const x = plate.getContext('2d');
+  x.fillStyle = PAPER;
+  x.fillRect(0, 0, PW, PH);
+  const sc = Math.max(PW / plateImg.width, PH / plateImg.height);
+  const w = plateImg.width * sc, h = plateImg.height * sc;
+  x.drawImage(plateImg, (PW - w) / 2, (PH - h) / 2, w, h);
+  // the sheet's own tooth over the capture, so it stays paper rather than photograph
+  x.globalAlpha = 0.38;
+  for (let j = 0; j < PH; j += 256) for (let i = 0; i < PW; i += 256) x.drawImage(toothTile, i, j);
+  x.globalAlpha = 1;
+  edgeDissolve(x);
+}
+{
+  const im = new Image();
+  im.onload = () => { plateImg = im; drawPhotoPlate(); };
+  im.src = 'plate.jpg';
 }
 
 /* ---------- the fog: two sheets of haze on separate slow headings ---------- */
@@ -456,7 +488,7 @@ function tick(now) {
 drawPlate();
 buildFog();
 let rsz;
-addEventListener('resize', () => { clearTimeout(rsz); rsz = setTimeout(() => { drawPlate(); buildFog(); }, 250); });
+addEventListener('resize', () => { clearTimeout(rsz); rsz = setTimeout(() => { drawPlate(); drawPhotoPlate(); buildFog(); }, 250); });
 requestAnimationFrame(tick);
 </script>
 </body>
