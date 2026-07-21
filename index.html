@@ -3295,8 +3295,18 @@ if (PLATE) {
   controls.update();
   ashMat.uniforms.uInk.value = 0;
   birdMat.uniforms.uInk.value = 0;
-  compMat.uniforms.uFogDepth.value = 0;        // the loading sheet lays its own haze
-  compMat.uniforms.uCloudInk.value = 0;
+  compMat.uniforms.uCloudInk.value = 0;        // no sky in frame anyway
+  // THE FIX FOR THE BLANK PLATE. The aerial dissolve (depthScale 0.0003) is measured
+  // for the oblique view, where 2 km of slant means the far ridge. Straight overhead,
+  // EVERYTHING is 3+ km away, so the whole drawing dissolved into the air of the page
+  // and the capture came back as bare paper. Push the fade out far beyond the sheet;
+  // the lens fog stays - it is the page's signature and Rebaz asked to keep it.
+  scene.traverse(o => {
+    const u = o.material && o.material.uniforms;
+    if (u && u.uDepthScale) u.uDepthScale.value = 0.00006;
+    const p = o.userData && o.userData.pig;
+    if (p && p.uniforms && p.uniforms.uDepthScale) p.uniforms.uDepthScale.value = 0.00006;
+  });
 }
 
 function updateFrame() {
