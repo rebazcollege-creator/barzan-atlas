@@ -25,7 +25,7 @@
   #loader{position:fixed;inset:0;z-index:40}
   #ldC{position:absolute;inset:0}
   #ldInk{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);
-         width:min(88vw,960px);filter:blur(0.4px)}
+         width:min(88vw,960px)}
   /* ---------- aliveness ---------- */
   html{cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26'%3E%3Cg fill='none' stroke='%234d4639' stroke-width='1.3'%3E%3Ccircle cx='13' cy='13' r='5.5'/%3E%3Cpath d='M13 1v6M13 19v6M1 13h6M19 13h6'/%3E%3C/g%3E%3C/svg%3E") 13 13, crosshair}
   body.pointing{cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26'%3E%3Cg fill='none' stroke='%23a5301f' stroke-width='1.3'%3E%3Ccircle cx='13' cy='13' r='5.5'/%3E%3Cpath d='M13 1v6M13 19v6M1 13h6M19 13h6'/%3E%3C/g%3E%3C/svg%3E") 13 13, pointer}
@@ -41,6 +41,11 @@
   #zcard h4{font-size:13px;letter-spacing:.26em;font-weight:400;margin:0 0 12px;text-transform:uppercase}
   #zcard p{font-size:15.5px;line-height:1.6;margin:0}
   #zcard .leave{margin-top:16px;font-size:10.5px;letter-spacing:.22em;color:#8a8172;text-transform:uppercase}
+  #ldSkip{position:absolute;left:50%;bottom:30px;transform:translateX(-50%);z-index:44;
+    background:none;border:none;border-bottom:1px solid rgba(77,70,57,.4);padding:6px 2px;
+    font-family:'IM Fell English',Georgia,serif;font-size:11.5px;letter-spacing:.3em;
+    color:#6b6454;cursor:pointer;text-transform:uppercase;opacity:.8}
+  #ldSkip:hover{opacity:1;color:#4d4639}
   #snd{position:fixed;bottom:14px;right:34px;z-index:8;background:none;border:none;cursor:pointer;
     padding:6px;opacity:.75}
   #snd:hover{opacity:1}
@@ -148,13 +153,19 @@
     }
   }
 
-  // the ink: same engine as the sentences were tuned on
-  var IW = 1020, IH = 430; K.width = IW; K.height = IH;
-  var kctx = K.getContext('2d'), fr = kctx.createImageData(IW, IH);
+  // the ink, at DEVICE resolution: the glyphs render at retina scale and the reveal
+  // is a small noise mask composited over them, so the letters never blur
+  var IW = 1020, IH = 430, KS = Math.min(2, window.devicePixelRatio || 1);
+  K.width = IW * KS; K.height = IH * KS;
+  var kctx = K.getContext('2d');
+  var MWF = 320, MHF = 135;
+  var maskC = document.createElement('canvas'); maskC.width = MWF; maskC.height = MHF;
+  var mkx = maskC.getContext('2d'), mImg = mkx.createImageData(MWF, MHF);
   function buildRound(lines, seed) {
-    var c = document.createElement('canvas'); c.width = IW; c.height = IH;
+    var c = document.createElement('canvas'); c.width = IW * KS; c.height = IH * KS;
     var x = c.getContext('2d');
-    x.fillStyle = '#000';
+    x.scale(KS, KS);
+    x.fillStyle = 'rgb(' + TINK[0] + ',' + TINK[1] + ',' + TINK[2] + ')';
     x.textAlign = 'center';
     var canLS = 'letterSpacing' in x;
     function setLine(ln) {
@@ -177,18 +188,19 @@
       x.fillText(m2.txt, IW / 2 + m2.ls / 2, y + m2.lh * 0.72);
       y += m2.lh;
     }
-    var glyph = x.getImageData(0, 0, IW, IH);
     function mk(off) {
-      var f2 = new Float32Array(IW * IH), i, j, mn = 1e9, mx = -1e9, v;
-      for (j = 0; j < IH; j++) for (i = 0; i < IW; i++) {
-        v = vn(i / 132 + seed + off, j / 132 + seed + off) * 0.62
-          + vn(i / 31 + seed * 3 + off, j / 31 + seed * 3 + off) * 0.38;
-        f2[j * IW + i] = v; if (v < mn) mn = v; if (v > mx) mx = v;
+      // the reveal field lives at mask resolution; the spatial frequency matches the
+      // old full-resolution field (1020/320 = 3.19 scale factor folded in)
+      var f2 = new Float32Array(MWF * MHF), i, j, mn = 1e9, mx = -1e9, v;
+      for (j = 0; j < MHF; j++) for (i = 0; i < MWF; i++) {
+        v = vn(i / 41.4 + seed + off, j / 41.4 + seed + off) * 0.62
+          + vn(i / 9.7 + seed * 3 + off, j / 9.7 + seed * 3 + off) * 0.38;
+        f2[j * MWF + i] = v; if (v < mn) mn = v; if (v > mx) mx = v;
       }
       for (i = 0; i < f2.length; i++) f2[i] = (f2[i] - mn) / (mx - mn);
       return f2;
     }
-    return { glyph: glyph, inField: mk(0), outField: mk(17.7) };
+    return { tex: c, inField: mk(0), outField: mk(17.7) };
   }
   var roundData = null, accB = 0;
   function buildAll() {
@@ -208,15 +220,18 @@
     new Promise(function (res) { setTimeout(res, 300); })
   ]).then(buildAll, buildAll);
   function paintInk(rd, reveal, field) {
-    var F = 0.22, g = rd.glyph.data, o = fr.data, i, a, m;
-    for (i = 0; i < IW * IH; i++) {
-      a = g[i * 4 + 3];
-      if (!a) { o[i * 4 + 3] = 0; continue; }
+    var F = 0.22, o = mImg.data, i, m;
+    for (i = 0; i < MWF * MHF; i++) {
       m = (reveal - field[i]) / F; m = m < 0 ? 0 : m > 1 ? 1 : m; m = m * m * (3 - 2 * m);
-      o[i * 4] = TINK[0]; o[i * 4 + 1] = TINK[1]; o[i * 4 + 2] = TINK[2];
-      o[i * 4 + 3] = a * m;
+      o[i * 4 + 3] = m * 255;
     }
-    kctx.putImageData(fr, 0, 0);
+    mkx.putImageData(mImg, 0, 0);
+    kctx.clearRect(0, 0, K.width, K.height);
+    kctx.drawImage(rd.tex, 0, 0);
+    kctx.globalCompositeOperation = 'destination-in';
+    kctx.imageSmoothingEnabled = true;
+    kctx.drawImage(maskC, 0, 0, K.width, K.height);
+    kctx.globalCompositeOperation = 'source-over';
   }
 
   // THE CLOCK SURVIVES THE BUILD. The atlas assembles synchronously in big blocks
@@ -225,6 +240,32 @@
   // choreography now advances on an accumulator credited at most 120 ms per frame:
   // a two-second stall costs the animation 120 ms, and every sentence lives its
   // full life whatever the machine is doing.
+  // the skip: one quiet engraved line. It releases the module's text-first wait
+  // (__ink1), forbids the flight (__skipIntro), seats the camera at the landing
+  // stance with the ink-in reveal, and opens the sheet at once.
+  var skipBtn = document.createElement('button');
+  skipBtn.id = 'ldSkip';
+  skipBtn.textContent = 'skip the intro';
+  L.appendChild(skipBtn);
+  var skipping = false;
+  skipBtn.addEventListener('click', function () {
+    if (skipping) return;
+    skipping = true;
+    window.__skipIntro = true;
+    window.__ink1 = true;
+    var go = function () {
+      if (window.__goRestStance) window.__goRestStance();
+      if (wipeAcc < 0) { wipeAcc = acc; window.__loaderWipeAt = true; }
+    };
+    if (window.__atlasReady) go();
+    else {
+      skipBtn.textContent = 'preparing the map';
+      var w8 = setInterval(function () {
+        if (window.__atlasReady) { clearInterval(w8); go(); }
+      }, 120);
+    }
+  });
+
   var T0 = performance.now(), last = T0, acc = 0;
   var IN = 1800, HOLD = 2600, OUT = 1500, GAP = 500, OPEN = 150;
   var CYCLE = IN + HOLD + OUT + GAP, WIPE = 2600, HARD = 45000;
@@ -250,7 +291,7 @@
           }
         }
         else if (lt < IN + HOLD + OUT) { paintInk(rd, (1 - (lt - IN - HOLD) / OUT) * 1.25, rd.outField); heldRound = -1; }
-        else if (heldRound !== -9) { kctx.clearRect(0, 0, IW, IH); heldRound = -9; }
+        else if (heldRound !== -9) { kctx.clearRect(0, 0, K.width, K.height); heldRound = -9; }
       }
       if (textsDone && (window.__atlasReady || t > HARD)) {
         wipeAcc = acc;
@@ -3573,6 +3614,22 @@ if (new URLSearchParams(location.search).has('map')) {
   controls.target.set(CX, hTown + 10, CZ);
   controls.update();
 }
+// the skip link on the loading sheet lands here: straight to the resting stance,
+// the sheet inking itself in, no flight
+window.__goRestStance = function () {
+  window.__aliveOn = true;
+  window.__revealFrom = performance.now();
+  camera.position.set(CX + 470, hTown + 430, CZ + 640);
+  controls.target.set(CX, hTown + 10, CZ);
+  if (window.__storyBegin) {
+    window.__storyBegin();
+  } else {
+    controls.enabled = true;
+    controls.autoRotate = true;
+  }
+  controls.update();
+};
+
 if (PLATE) {
   ['frame', 'mapbtn', 'compass', 'scalebar'].forEach(id => {
     const e = document.getElementById(id); if (e) e.style.display = 'none';
