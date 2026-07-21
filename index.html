@@ -121,17 +121,17 @@
     var c = document.createElement('canvas'); c.width = IW; c.height = IH;
     var x = c.getContext('2d');
     x.fillStyle = '#000';
-    x.font = '700 50px "Britti Sans", Georgia, serif';
-    if ('letterSpacing' in x) x.letterSpacing = '2.6px';
+    x.font = '500 42px "Britti Sans", Georgia, serif';
+    if ('letterSpacing' in x) x.letterSpacing = '4.5px';
     x.textAlign = 'center';
-    var words = text.split(' '), lines = [], line = '';
+    var words = text.toUpperCase().split(' '), lines = [], line = '';
     for (var wI = 0; wI < words.length; wI++) {
       var trial = line ? line + ' ' + words[wI] : words[wI];
       if (x.measureText(trial).width > IW - 95 && line) { lines.push(line); line = words[wI]; }
       else line = trial;
     }
     lines.push(line);
-    var lh = 76, y0 = IH / 2 - (lines.length - 1) * lh / 2 + 16;
+    var lh = 68, y0 = IH / 2 - (lines.length - 1) * lh / 2 + 14;
     for (var li = 0; li < lines.length; li++) x.fillText(lines[li], IW / 2, y0 + li * lh);
     var glyph = x.getImageData(0, 0, IW, IH);
     function mk(off) {
@@ -160,7 +160,7 @@
   }
   // as soon as it can: the moment the face is resident, or 500 ms if it stalls
   Promise.race([
-    document.fonts.load('700 50px "Britti Sans"'),
+    document.fonts.load('500 42px "Britti Sans"'),
     new Promise(function (res) { setTimeout(res, 300); })
   ]).then(buildAll, buildAll);
   function paintInk(rd, reveal, field) {
@@ -182,7 +182,7 @@
   // a two-second stall costs the animation 120 ms, and every sentence lives its
   // full life whatever the machine is doing.
   var T0 = performance.now(), last = T0, acc = 0;
-  var IN = 1800, HOLD = 3600, OUT = 1500, GAP = 500, OPEN = 150;
+  var IN = 1800, HOLD = 2600, OUT = 1500, GAP = 500, OPEN = 150;
   var CYCLE = IN + HOLD + OUT + GAP, WIPE = 2600, HARD = 45000;
   var wipeAcc = -1, done = false, heldRound = -1;
   function tick(now) {
