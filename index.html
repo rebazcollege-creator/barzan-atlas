@@ -49,21 +49,19 @@
   var K = document.getElementById('ldInk');
   var DPR = Math.min(2, window.devicePixelRatio || 1);
   var PAPER = '#f8f6ef', TINK = [48, 42, 33];
-  // Set the way an engraver set a cartouche: a centred stack with line-by-line
-  // hierarchy - letterspaced roman capitals for the key phrases, italic for the
-  // connecting prose - between small engraved rules. The face is IM Fell English,
-  // the 17th-century types this project's plate lettering began with.
+  // One register only, at Rebaz's direction: every line in the style of LONG
+  // BEFORE - IM Fell English roman, letterspaced capitals, 27px - and no rules.
   var ROUNDS = [
-    [ { k: 'c', t: 'Long before', s: 27 },
-      { k: 'i', t: 'the Barzanis became an influential', s: 40 },
-      { k: 'i', t: 'political household', s: 40 },
-      { k: 'c', t: 'in modern Iraqi Kurdistan,', s: 24 } ],
-    [ { k: 'i', t: 'they were sheikhs in', s: 40 },
-      { k: 'c', t: 'a remote mountain village.', s: 30 } ],
-    [ { k: 'i', t: 'Their authority began in', s: 40 },
-      { k: 'c', t: 'a small Sufi lodge,', s: 30 } ],
-    [ { k: 'i', t: 'among poor peasants, rural communities,', s: 38 },
-      { k: 'i', t: 'disciples, and rival tribes.', s: 38 } ]
+    [ { k: 'c', t: 'Long before the Barzanis became', s: 27 },
+      { k: 'c', t: 'an influential political household', s: 27 },
+      { k: 'c', t: 'in modern Iraqi Kurdistan,', s: 27 } ],
+    [ { k: 'c', t: 'they were sheikhs in', s: 27 },
+      { k: 'c', t: 'a remote mountain village.', s: 27 } ],
+    [ { k: 'c', t: 'Their authority began in', s: 27 },
+      { k: 'c', t: 'a small Sufi lodge,', s: 27 } ],
+    [ { k: 'c', t: 'among poor peasants,', s: 27 },
+      { k: 'c', t: 'rural communities, disciples,', s: 27 },
+      { k: 'c', t: 'and rival tribes.', s: 27 } ]
   ];
   function h2(x, y) { var v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return v - Math.floor(v); }
   function vn(x, y) {
@@ -145,22 +143,16 @@
       }
       return { txt: txt, lh: Math.round(sz * (ln.k === 'c' ? 1.55 : 1.35)), ls: ls };
     }
-    // measure the stack, then centre it with an engraved rule above and below
-    var RULE = 30, hgt = RULE * 2, mets = [];
+    // measure the stack, then centre it - no rules, at Rebaz's direction
+    var hgt = 0, mets = [];
     for (var li = 0; li < lines.length; li++) { var m = setLine(lines[li]); mets.push(m); hgt += m.lh; }
-    var y = (IH - hgt) / 2 + RULE;
-    function rule(ry) {
-      x.fillRect(IW / 2 - 105, ry - 0.7, 210, 1.4);
-      x.save(); x.translate(IW / 2, ry); x.rotate(Math.PI / 4); x.fillRect(-3.4, -3.4, 6.8, 6.8); x.restore();
-    }
-    rule(y - RULE / 2 - 4);
+    var y = (IH - hgt) / 2;
     for (li = 0; li < lines.length; li++) {
       var m2 = setLine(lines[li]);
       // trailing tracking after the last capital shifts a centred line; compensate
-      x.fillText(m2.txt, IW / 2 + (lines[li].k === 'c' ? m2.ls / 2 : 0), y + m2.lh * 0.72);
+      x.fillText(m2.txt, IW / 2 + m2.ls / 2, y + m2.lh * 0.72);
       y += m2.lh;
     }
-    rule(y + RULE / 2 - 6);
     var glyph = x.getImageData(0, 0, IW, IH);
     function mk(off) {
       var f2 = new Float32Array(IW * IH), i, j, mn = 1e9, mx = -1e9, v;
@@ -188,8 +180,7 @@
   }
   // as soon as it can: the moment the face is resident, or 500 ms if it stalls
   Promise.race([
-    Promise.all([document.fonts.load('italic 40px "IM Fell English"'),
-                 document.fonts.load('400 30px "IM Fell English"')]),
+    document.fonts.load('400 27px "IM Fell English"'),
     new Promise(function (res) { setTimeout(res, 300); })
   ]).then(buildAll, buildAll);
   function paintInk(rd, reveal, field) {
@@ -2479,7 +2470,7 @@ function addLabels() {
     c.width = cw; c.height = ch;
     const x = c.getContext('2d');
     x.fillStyle = '#fff';
-    x.font = `${town ? 126 : 108}px 'Britti Sans', Georgia, serif`;
+    x.font = `${town ? 126 : 108}px 'IM Fell English', Georgia, serif`;
     x.textAlign = 'center';
     x.textBaseline = 'middle';
     const name = (p.n || '').toUpperCase().split('').join(' ');
@@ -3189,7 +3180,7 @@ ground.rotation.x = -Math.PI / 2;
 ground.userData.pig = groundPig;
 scene.add(ground);
 
-await document.fonts.load('148px "Britti Sans"').catch(() => {});
+await document.fonts.load('126px "IM Fell English"').catch(() => {});
 addLabels();
 
 /* ---------- composite (proto, verbatim + distance-to-paper) ---------- */
