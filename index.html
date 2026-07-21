@@ -26,6 +26,25 @@
   #ldC{position:absolute;inset:0}
   #ldInk{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);
          width:min(88vw,960px);filter:blur(0.4px)}
+  /* ---------- aliveness ---------- */
+  html{cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26'%3E%3Cg fill='none' stroke='%234d4639' stroke-width='1.3'%3E%3Ccircle cx='13' cy='13' r='5.5'/%3E%3Cpath d='M13 1v6M13 19v6M1 13h6M19 13h6'/%3E%3C/g%3E%3C/svg%3E") 13 13, crosshair}
+  body.pointing{cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26'%3E%3Cg fill='none' stroke='%23a5301f' stroke-width='1.3'%3E%3Ccircle cx='13' cy='13' r='5.5'/%3E%3Cpath d='M13 1v6M13 19v6M1 13h6M19 13h6'/%3E%3C/g%3E%3C/svg%3E") 13 13, pointer}
+  #zname{position:fixed;z-index:9;pointer-events:none;font-family:'IM Fell English',Georgia,serif;
+    font-size:12.5px;letter-spacing:.26em;color:#4d4639;background:rgba(248,246,239,.92);
+    padding:6px 14px;box-shadow:0 0 0 1px rgba(77,70,57,.4);opacity:0;transition:opacity .3s;
+    text-transform:uppercase;white-space:nowrap}
+  #zcard{position:fixed;right:4vw;top:50%;transform:translateY(-50%) translateX(14px);z-index:9;
+    width:min(78vw,330px);background:#f8f6ef;box-shadow:0 0 0 1px rgba(77,70,57,.35),0 2px 22px rgba(77,70,57,.14);
+    font-family:'IM Fell English',Georgia,serif;color:#30291f;padding:26px 30px;
+    opacity:0;pointer-events:none;transition:opacity .45s,transform .45s}
+  #zcard.on{opacity:1;transform:translateY(-50%) translateX(0)}
+  #zcard h4{font-size:13px;letter-spacing:.26em;font-weight:400;margin:0 0 12px;text-transform:uppercase}
+  #zcard p{font-size:15.5px;line-height:1.6;margin:0}
+  #zcard .leave{margin-top:16px;font-size:10.5px;letter-spacing:.22em;color:#8a8172;text-transform:uppercase}
+  #snd{position:fixed;bottom:14px;right:34px;z-index:8;background:none;border:none;cursor:pointer;
+    padding:6px;opacity:.75}
+  #snd:hover{opacity:1}
+  #snd svg{display:block}
 </style>
 </head>
 <body>
@@ -447,6 +466,7 @@ const DATA_FRAG = /* glsl */`
   uniform vec3 uLightDir;
   uniform vec3 uStrokeDirection;
   uniform float uSubdivision;
+  uniform float uBoilT;
   uniform float uStrokeLightOffset;
   uniform float uStrokeLightMultiplier;
   uniform float uStrokeTreshold;
@@ -510,6 +530,11 @@ const DATA_FRAG = /* glsl */`
     float s = distance(pos, uStrokeDirection * 1000.0);
     vec2 np = vec2(dot(pos, vec3(0.83, 0.31, 0.55)), dot(pos, vec3(-0.4, 0.9, 0.2)));
     s += (vnoise(np * 0.8) - 0.5) * 0.14;     // the hand wavers
+    // LINE BOIL: the plate is re-drawn a couple of times a second and never twice
+    // the same - the oldest hand-animation life there is. The time is QUANTISED, so
+    // strokes sit still between redraws instead of swimming.
+    s += (vnoise(np * 2.6 + uBoilT) - 0.5) * 0.11;
+    b += (vnoise(np * 1.3 + uBoilT * 1.7) - 0.5) * 0.09;
     b += (vnoise(np * 1.75 + 13.7) - 0.5) * 0.26; // pressure varies
     s = s * uSubdivision + phase;
     s = abs(mod(s, 1.0) - 0.5) * 2.0;
@@ -549,13 +574,20 @@ const DATA_FRAG = /* glsl */`
   }
 `;
 
+const DATA_MATS_ALL = [];   // every plate material, for the boil clock
 function dataMaterial(tone, opts = {}) {
+  const __m = __dataMaterialInner(tone, opts);
+  DATA_MATS_ALL.push(__m);
+  return __m;
+}
+function __dataMaterialInner(tone, opts = {}) {
   return new THREE.ShaderMaterial({
     vertexShader: DATA_VERT,
     fragmentShader: DATA_FRAG,
     uniforms: {
       uTone: { value: tone },
       uTime: { value: 0 },
+      uBoilT: { value: 0 },
       uWindAmp: { value: opts.windAmp ?? 0 },
       uToneGrad: { value: opts.toneGrad ?? 0 },
       uGradY0: { value: opts.gradY0 ?? 0 },
@@ -1723,6 +1755,7 @@ const GROUND_FRAG = /* glsl */`
   uniform sampler2D uMarks;
   uniform sampler2D uMarksNormal;
   uniform float uNormalMult;
+  uniform float uBoilT;
   uniform vec3 uLightDir;
   uniform vec2 uCenter;
   uniform float uSpan;
@@ -1764,6 +1797,7 @@ const GROUND_FRAG = /* glsl */`
     float slope = 1.0 - geoN.y;
     float hcoord = dot(vWorldPos.xz, vec2(0.42, 0.91));
     hcoord += (gvnoise(vWorldPos.xz * 0.013) - 0.5) * 34.0;
+    hcoord += (gvnoise(vWorldPos.xz * 0.21 + uBoilT) - 0.5) * 7.5;   // the boil, on the land's strokes too
     float hstr = abs(mod(hcoord / 24.0, 1.0) - 0.5) * 2.0;
     float hgate = smoothstep(0.12, 0.45, slope) * (0.34 + hillShade * 2.6);
     float hatch = pow(clamp(hstr - (1.0 - hgate), 0.0, 1.0), 0.35) * 0.42;
@@ -3173,6 +3207,7 @@ const groundMat = new THREE.ShaderMaterial({
     uMarks: { value: marksTex },
     uMarksNormal: { value: marksNormalTex },
     uNormalMult: { value: 0.7 },
+    uBoilT: { value: 0 },
     uLightDir: { value: P.lightDir },
     uCenter: { value: new THREE.Vector2(CX, CZ) },
     uSpan: { value: SPAN },
@@ -3240,7 +3275,7 @@ const COMP_FRAG = /* glsl */`
   uniform float uVignetteStrength;
   uniform float uVignetteOffset;
   uniform vec3 uCamFwd; uniform vec3 uCamRight; uniform vec3 uCamUp;
-  uniform float uTanHalf; uniform float uCloudInk;
+  uniform float uTanHalf; uniform float uCloudInk; uniform float uReveal;
   uniform float uFogRoll; uniform float uFogStart; uniform float uFogDepth;
   uniform float uNoiseStrength;
   uniform float uPaperStrength;
@@ -3378,7 +3413,7 @@ const COMP_FRAG = /* glsl */`
         // THE FORMS. Stretched wide and flattened in depth, because cloud banks are
         // long and low, never round. Domain-warped first so the shape has lobes and
         // inlets instead of the soft oval a plain noise threshold always gives.
-        vec2 q = vec2(cuv.x * 1.50, cuv.y * 2.20);
+        vec2 q = vec2(cuv.x * 1.50 + uTime * 0.0045, cuv.y * 2.20 + uTime * 0.0016);
         vec2 wq = vec2(vnoiseC(q * 1.9 + 2.1), vnoiseC(q * 1.9 + 9.4)) - 0.5;
         vec2 mq = q + wq * 0.55;
         float m1 = vnoiseC(mq + 4.2) * 0.62 + vnoiseC(mq * 2.4 + 13.1) * 0.38;
@@ -3400,6 +3435,12 @@ const COMP_FRAG = /* glsl */`
       }
     }
 
+    // on the instant entrances (?map) the sheet INKS ITSELF IN - a noise-gated
+    // arrival rather than a switch being thrown
+    if (uReveal < 0.999) {
+      float rv = smoothstep(0.0, 0.22, uReveal * 1.25 - vnoiseC(px / 230.0));
+      color = mix(uPaperColor, color, rv);
+    }
     color += (random2d(uv * 100.0 + mod(uTime, 100.0)) - 0.5) * uNoiseStrength;
 
     // ---- THE FOG AT THE LENS ---------------------------------------------------
@@ -3477,6 +3518,7 @@ const compMat = new THREE.ShaderMaterial({
     uWash: { value: P.wash },
     uInkTint: { value: P.inkTint },
     uInkDepth: { value: P.inkDepth },
+    uReveal: { value: 1 },
     uTime: { value: 0 }
   },
   depthTest: false,
@@ -3525,6 +3567,8 @@ const clock = new THREE.Clock();
   window.__frame = { needle: comp.querySelector('#nd'), lbl: sb.querySelector('.lbl'), bar: sb.querySelector('.bar'), pls: [] };
 })();
 if (new URLSearchParams(location.search).has('map')) {
+  window.__aliveOn = true;
+  window.__revealFrom = performance.now();
   camera.position.set(CX + 470, hTown + 430, CZ + 640);
   controls.target.set(CX, hTown + 10, CZ);
   controls.update();
@@ -3591,8 +3635,16 @@ function keepAboveGround() {
 }
 
 const _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
+const PTR = { x: 0, y: 0, sx: 0, sy: 0, off: new THREE.Vector3(), had: false };
+addEventListener('pointermove', e => {
+  PTR.x = e.clientX / innerWidth * 2 - 1;
+  PTR.y = e.clientY / innerHeight * 2 - 1;
+});
 let __frames = 0, __flight = null;
 renderer.setAnimationLoop(() => {
+  // the parallax offset is withdrawn before the controls think, so it never
+  // accumulates into the orbit state
+  if (PTR.had) { camera.position.sub(PTR.off); PTR.had = false; }
   // the loading sheet above waits for this: by the third frame the shaders are
   // compiled and the page beneath the paper is genuinely alive, not a black beat
   if (++__frames === 3) window.__atlasReady = true;
@@ -3627,6 +3679,7 @@ renderer.setAnimationLoop(() => {
     compMat.uniforms.uFogDepth.value = 0.95 + (P.fogDepth - 0.95) * u;
     if (u0 >= 1) {
       __flight.done = true;
+      window.__aliveOn = true;
       controls.enabled = true;
       controls.autoRotate = true;
       controls.update();
@@ -3647,6 +3700,25 @@ renderer.setAnimationLoop(() => {
   compMat.uniforms.uCamRight.value.copy(_right);
   compMat.uniforms.uCamUp.value.crossVectors(_right, _fwd).normalize();
   compMat.uniforms.uTanHalf.value = Math.tan(camera.fov * Math.PI / 360);
+  // THE BOIL CLOCK: ~2.5 redraws a second across every plate material
+  const __bt = Math.floor(tNow * 2.5) * 0.73;
+  for (let i = 0; i < DATA_MATS_ALL.length; i++) {
+    DATA_MATS_ALL[i].uniforms.uTime.value = tNow;
+    DATA_MATS_ALL[i].uniforms.uBoilT.value = __bt;
+  }
+  groundMat.uniforms.uBoilT.value = __bt;
+  // the sheet inks itself in on instant entrances
+  compMat.uniforms.uReveal.value = window.__revealFrom
+    ? Math.min(1, (performance.now() - window.__revealFrom) / 2400) : 1;
+  // POINTER PARALLAX: the plate leans a few metres toward the reader's attention,
+  // even while orbiting - the cheapest possible 'it noticed me'
+  PTR.sx += (PTR.x - PTR.sx) * 0.045;
+  PTR.sy += (PTR.y - PTR.sy) * 0.045;
+  PTR.off.copy(_right).multiplyScalar(PTR.sx * 6.0);
+  PTR.off.y = -PTR.sy * 3.0;
+  camera.position.add(PTR.off);
+  PTR.had = true;
+  if (window.__aliveTick) window.__aliveTick(tNow);
   renderPigment();
   renderer.setRenderTarget(rt);
   renderer.render(scene, camera);
@@ -3693,6 +3765,315 @@ function setView(v) {
 addEventListener('keydown', e => { const v = VIEWS[e.key]; if (v) setView(v); });
 
 window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundMat, scene, CX, CZ, hTown, setView, VIEWS };
+
+/* ============================================================
+   ALIVENESS — the systems that make the plate answer.
+   1 parallax (in the loop) · 2 hover ink · 3 focus mode ·
+   4 line boil (in the materials) · 5 cursor (css) · 6 idle tour ·
+   7 scene reveal (composite) · 8 sky drift (composite) ·
+   9-10 sound, procedural, muted by default.
+   Gated off during the story's linear mode and in ?plate.
+   ============================================================ */
+{
+  const PLATE_MODE = new URLSearchParams(location.search).has('plate');
+  const linearStory = () => window.__storyBegunFlag && !window.__hubActive;
+  const aliveNow = () => window.__aliveOn && !PLATE_MODE && !linearStory();
+
+  /* ----- the zones: places on the sheet that answer when asked -----
+     REBAZ: the texts below are deliberately plain; rewrite them at will. */
+  const ZONES = [
+    { n: 'The Takya', x: -127, z: -104, r: 60,
+      t: 'The lodge around which Barzan first gathered: the takya, and beside it the mosque, the one landmark of the village.' },
+    { n: 'The Village', x: 0, z: 0, r: 170,
+      t: 'The heart of Barzan. What stands today is a rebuilding: the village was emptied and destroyed repeatedly in the revolts and the Anfal campaign.' },
+    { n: 'The Oak Woods', x: -150, z: 550, r: 380,
+      t: 'Open stands of Zagros oak on the flanks above the village.' },
+    { n: 'The Worked Parcels', x: 520, z: 380, r: 300,
+      t: 'Barley, orchard and grazing ground between the houses and the ridge.' },
+    { n: 'The Western Slopes', x: -600, z: -150, r: 320,
+      t: 'The rising ground west of the village, toward the high ridge.' },
+    { n: 'The Road East', x: 700, z: 0, r: 280,
+      t: 'The way out of the valley, east toward Mergasur and the Great Zab.' },
+  ];
+
+  /* ----- hover ink: an engraved madder ring under the pointer ----- */
+  const ringGeo = new THREE.CircleGeometry(1, 48);
+  ringGeo.rotateX(-Math.PI / 2);
+  const ringMat = new THREE.ShaderMaterial({
+    vertexShader: `
+      varying vec2 vUv; varying float vDepth;
+      void main() {
+        vUv = uv;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vDepth = -mv.z;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform float uOn; uniform float uDepthScale;
+      varying vec2 vUv; varying float vDepth;
+      void main() {
+        float r = length(vUv - 0.5) * 2.0;
+        float ring = smoothstep(0.78, 0.94, r) * smoothstep(1.0, 0.97, r);
+        float fill = smoothstep(0.9, 0.0, r) * 0.05;
+        float ink = (ring * 0.30 + fill) * uOn;
+        if (ink < 0.004) discard;
+        float depth = (1.0 - clamp(vDepth * uDepthScale, 0.0, 1.0)) * min(1.0, ink * 8.0) * 0.4;
+        gl_FragColor = vec4(0.0, ink, depth, 0.92 * smoothstep(0.0, 0.05, ink));
+      }`,
+    uniforms: { uOn: { value: 0 }, uDepthScale: { value: P.depthScale } },
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+    blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+    depthWrite: false, transparent: true, side: THREE.DoubleSide,
+  });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.frustumCulled = false;
+  ring.visible = false;
+  scene.add(ring);
+
+  const zname = document.createElement('div'); zname.id = 'zname'; document.body.appendChild(zname);
+  const zcard = document.createElement('div'); zcard.id = 'zcard'; document.body.appendChild(zcard);
+
+  /* ----- pointer to ground: march the view ray onto the terrain ----- */
+  const _dir = new THREE.Vector3(), _p = new THREE.Vector3();
+  function groundHit(out) {
+    _dir.set(PTR.x, -PTR.y, 0.5).unproject(camera).sub(camera.position).normalize();
+    let t = 12;
+    for (let i = 0; i < 150; i++) {
+      _p.copy(camera.position).addScaledVector(_dir, t);
+      const g = sampleH(_p.x, -_p.z);
+      if (_p.y <= g + 0.5) { out.set(_p.x, g, _p.z); return true; }
+      t += Math.max(7, (_p.y - g) * 0.75);
+      if (t > 4200) break;
+    }
+    return false;
+  }
+
+  /* ----- one glide engine serves focus and the idle tour ----- */
+  let GLIDE = null;
+  function glideTo(px2, py2, pz2, tx, ty, tz, T, cb) {
+    GLIDE = {
+      t0: clock.getElapsedTime(), T, cb,
+      p0: camera.position.clone(), t0v: controls.target.clone(),
+      p1: new THREE.Vector3(px2, py2, pz2), t1v: new THREE.Vector3(tx, ty, tz),
+    };
+  }
+
+  let mode = 'free', hoverZone = null, downAt = null, lastInput = 0, tour = null;
+  const hit = new THREE.Vector3();
+
+  function zoneStance(z) {
+    const az = Math.atan2(camera.position.z - z.z, camera.position.x - z.x);
+    const d = z.r * 3.4 + 130, h = z.r * 1.8 + 100;
+    const gy = sampleH(z.x, -z.z);
+    return [z.x + Math.cos(az) * d, gy + h, z.z + Math.sin(az) * d, z.x, gy + 8, z.z];
+  }
+  function enterFocus(z) {
+    mode = 'focus';
+    controls.enabled = false;
+    controls.autoRotate = false;
+    const st = zoneStance(z);
+    glideTo(st[0], st[1], st[2], st[3], st[4], st[5], 1.9, () => {});
+    zcard.innerHTML = `<h4>${z.n}</h4><p>${z.t}</p><div class="leave">drag the plate to leave</div>`;
+    zcard.classList.add('on');
+    snd.tick();
+  }
+  function leaveFocus() {
+    if (mode !== 'focus') return;
+    mode = 'free';
+    GLIDE = null;
+    zcard.classList.remove('on');
+    controls.enabled = true;
+    controls.autoRotate = true;
+    controls.update();
+    snd.tick();
+  }
+  addEventListener('keydown', e => { if (e.key === 'Escape') leaveFocus(); });
+
+  addEventListener('pointerdown', e => {
+    lastInput = performance.now(); stopTour();
+    downAt = { x: e.clientX, y: e.clientY };
+  });
+  addEventListener('pointerup', e => {
+    lastInput = performance.now();
+    if (!downAt) return;
+    const dist = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y);
+    const was = downAt; downAt = null;
+    if (dist < 20 && hoverZone && mode === 'free' && aliveNow()) enterFocus(hoverZone);
+  });
+  addEventListener('pointermove', e => {
+    lastInput = performance.now();
+    if (mode === 'focus' && downAt) {
+      // their exact intent threshold: twenty pixels of drag means 'let me go'
+      if (Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) >= 20) leaveFocus();
+    }
+    zname.style.left = (e.clientX + 18) + 'px';
+    zname.style.top = (e.clientY + 14) + 'px';
+  });
+  addEventListener('wheel', () => { lastInput = performance.now(); stopTour(); }, { passive: true });
+
+  /* ----- the idle tour: left alone, the plate performs ----- */
+  function stopTour() {
+    if (!tour) return;
+    tour = null; GLIDE = null;
+    controls.enabled = true;
+    controls.autoRotate = true;
+    controls.update();
+  }
+  function tourNext() {
+    if (!tour) return;
+    const z = ZONES[tour.i % ZONES.length];
+    tour.i++;
+    const st = zoneStance(z);
+    glideTo(st[0], st[1] + 60, st[2], st[3], st[4], st[5], 6.5, () => {
+      if (tour) tour.holdUntil = clock.getElapsedTime() + 5.0;
+    });
+  }
+  lastInput = performance.now();
+
+  /* ----- the tick, called from the render loop ----- */
+  let ringOn = 0;
+  window.__aliveTick = function (tNow) {
+    if (GLIDE) {
+      let u = (tNow - GLIDE.t0) / GLIDE.T;
+      if (u >= 1) u = 1;
+      const e2 = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+      const lift = Math.sin(e2 * Math.PI) * GLIDE.p0.distanceTo(GLIDE.p1) * 0.08;
+      camera.position.lerpVectors(GLIDE.p0, GLIDE.p1, e2);
+      camera.position.y += lift;
+      controls.target.lerpVectors(GLIDE.t0v, GLIDE.t1v, e2);
+      camera.lookAt(controls.target);
+      if (u >= 1) { const cb = GLIDE.cb; GLIDE = null; if (cb) cb(); }
+    }
+    if (tour && !GLIDE && tour.holdUntil && tNow > tour.holdUntil) { tour.holdUntil = 0; tourNext(); }
+    if (!aliveNow()) { ring.visible = false; zname.style.opacity = 0; return; }
+
+    // idle: 25 seconds of silence and the tour begins
+    if (mode === 'free' && !tour && !window.__storyBegunFlag &&
+        performance.now() - lastInput > 25000 && !document.hidden) {
+      tour = { i: 0, holdUntil: 0 };
+      controls.enabled = false;
+      controls.autoRotate = false;
+      tourNext();
+    }
+
+    // hover: which place is under the pointer
+    hoverZone = null;
+    if (mode === 'free' && !tour && groundHit(hit)) {
+      for (const z of ZONES) {
+        if (Math.hypot(hit.x - z.x, hit.z - z.z) < z.r) { hoverZone = z; break; }
+      }
+    }
+    const want = hoverZone ? 1 : 0;
+    ringOn += (want - ringOn) * 0.12;
+    if (hoverZone) {
+      ring.position.set(hoverZone.x, sampleH(hoverZone.x, -hoverZone.z) + 2.0, hoverZone.z);
+      ring.scale.set(hoverZone.r, 1, hoverZone.r);
+      zname.textContent = hoverZone.n;
+    }
+    ring.visible = ringOn > 0.02;
+    ringMat.uniforms.uOn.value = ringOn;
+    zname.style.opacity = hoverZone ? 1 : 0;
+    document.body.classList.toggle('pointing', !!hoverZone);
+  };
+
+  /* ----- sound: procedural, muted by default, remembered ----- */
+  const snd = (function () {
+    let ctx = null, master = null, on = false;
+    const SVGON = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#4d4639" stroke-width="1.3"><path d="M3 8v6h4l5 4V4L7 8H3z"/><path d="M15 8c1.4 1.6 1.4 4.4 0 6M17.5 6c2.4 2.8 2.4 7.2 0 10"/></svg>`;
+    const SVGOFF = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#4d4639" stroke-width="1.3"><path d="M3 8v6h4l5 4V4L7 8H3z"/><path d="M15 8l6 6M21 8l-6 6"/></svg>`;
+    const btn = document.createElement('button');
+    btn.id = 'snd'; btn.title = 'Sound';
+    btn.innerHTML = SVGOFF;
+    document.body.appendChild(btn);
+    function noiseBuffer(sec) {
+      const b = ctx.createBuffer(1, Math.max(1, (ctx.sampleRate * sec) | 0), ctx.sampleRate);
+      const d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      return b;
+    }
+    function loopNoise(filterType, freq, q, gain) {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer(2.7); src.loop = true;
+      const f = ctx.createBiquadFilter();
+      f.type = filterType; f.frequency.value = freq; f.Q.value = q;
+      const g = ctx.createGain(); g.gain.value = gain;
+      src.connect(f); f.connect(g); g.connect(master);
+      src.start();
+      return { f, g };
+    }
+    function lfo(param, hz, amp, base) {
+      const o = ctx.createOscillator(), og = ctx.createGain();
+      o.frequency.value = hz; og.gain.value = amp;
+      param.value = base;
+      o.connect(og); og.connect(param); o.start();
+    }
+    function chirp() {
+      if (!on) return;
+      const t0 = ctx.currentTime + 0.05;
+      const notes = 2 + (Math.random() * 3 | 0);
+      for (let k = 0; k < notes; k++) {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        const f0 = 2300 + Math.random() * 900;
+        const t = t0 + k * (0.14 + Math.random() * 0.09);
+        o.frequency.setValueAtTime(f0, t);
+        o.frequency.exponentialRampToValueAtTime(f0 * (1.25 + Math.random() * 0.2), t + 0.06);
+        o.frequency.exponentialRampToValueAtTime(f0 * 0.8, t + 0.14);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.05, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+        o.connect(g); g.connect(master);
+        o.start(t); o.stop(t + 0.2);
+      }
+      setTimeout(chirp, 5000 + Math.random() * 11000);
+    }
+    function build() {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      master = ctx.createGain(); master.gain.value = 0;
+      master.connect(ctx.destination);
+      // the wind: filtered noise whose colour and weight breathe on slow LFOs.
+      // Wind, leaves, birds, far-off water - and deliberately NOTHING else: no
+      // music, nothing liturgical, nothing martial. A memorial landscape.
+      const wind = loopNoise('lowpass', 380, 0.6, 0.5);
+      lfo(wind.f.frequency, 0.05, 150, 380);
+      lfo(wind.g.gain, 0.073, 0.22, 0.5);
+      loopNoise('bandpass', 900, 1.2, 0.07);
+      loopNoise('bandpass', 2100, 0.8, 0.035);
+      chirp();
+    }
+    function set(v) {
+      on = v;
+      btn.innerHTML = on ? SVGON : SVGOFF;
+      localStorage.setItem('barzan-sound', on ? '1' : '0');
+      if (on && !ctx) build();
+      if (ctx) {
+        ctx.resume();
+        master.gain.cancelScheduledValues(ctx.currentTime);
+        master.gain.linearRampToValueAtTime(on ? 0.3 : 0, ctx.currentTime + 1.2);
+      }
+    }
+    btn.addEventListener('click', () => set(!on));
+    // muted by default; remembered across visits; never starts without a gesture
+    if (localStorage.getItem('barzan-sound') === '1') {
+      addEventListener('pointerdown', () => set(true), { once: true });
+    }
+    return {
+      tick() {
+        if (!on || !ctx) return;
+        const src = ctx.createBufferSource();
+        src.buffer = noiseBuffer(0.09);
+        const f = ctx.createBiquadFilter();
+        f.type = 'bandpass'; f.frequency.value = 1300; f.Q.value = 2.2;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.08, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.09);
+        src.connect(f); f.connect(g); g.connect(master);
+        src.start();
+      }
+    };
+  })();
+  window.__sndTick = () => snd.tick();
+}
+
 </script>
 </body>
 </html>
