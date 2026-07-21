@@ -63,6 +63,10 @@ const townP = S.places.find(p => p.t === 'town') ?? S.places[0];
 const CX = townP.x, CZ = -townP.y; // world centre = Barzan itself
 const SPAN = 2500;                 // ONE Barzan: village + valley. 5120px/2500m = 2.05 px/m,
                                    // above Chartogne's ~1.7 — attention per pixel is the point
+// ?plate — the capture stance: straight overhead, north up, every instrument hidden,
+// no label, no ash, no lens fog. Exists so a screenshot of this page IS the flat plate
+// the loading sheet needs, at full renderer resolution with nothing to patch out.
+const PLATE = new URLSearchParams(location.search).has('plate');
 
 function mulberry32(a) {
   return function() {
@@ -2265,9 +2269,11 @@ function addLabels() {
           varying float vDist;
           void main() {
             float ink = texture2D(tText, vUv).r * uStrength;
-            // come in close and the name dissolves into the haze: it is a label for
-            // finding the village, not something to walk into
-            ink *= smoothstep(230.0, 540.0, vDist);
+            // The name belongs to ARRIVAL. From the opening overview and from any
+            // overhead stance it stays off the sheet; it surfaces as the camera comes
+            // down toward the village and dissolves again before you can walk into
+            // the letters.
+            ink *= smoothstep(230.0, 420.0, vDist) * (1.0 - smoothstep(620.0, 880.0, vDist));
             // WRITE DEPTH WHERE THE LETTERS ARE. Without it the composite reads this
             // patch as empty sky and lays paper straight over the name, which is why
             // BARZAN kept disappearing behind the fog.
@@ -2275,7 +2281,7 @@ function addLabels() {
             gl_FragColor = vec4(0.0, ink, solid, uRedA * smoothstep(0.0, 0.12, ink));
           }
         `,
-        uniforms: { tText: { value: tex }, uStrength: { value: 0.52 }, uRedA: { value: 0.92 } },   // softer, and the masthead's madder
+        uniforms: { tText: { value: tex }, uStrength: { value: PLATE ? 0.0 : 0.52 }, uRedA: { value: 0.92 } },   // softer, and the masthead's madder
         blending: THREE.CustomBlending,
       blendEquation: THREE.AddEquation,
       blendSrc: THREE.OneFactor,
@@ -3276,6 +3282,23 @@ const clock = new THREE.Clock();
   // iterates an empty list and quietly does nothing.
   window.__frame = { needle: comp.querySelector('#nd'), lbl: sb.querySelector('.lbl'), bar: sb.querySelector('.bar'), pls: [] };
 })();
+if (PLATE) {
+  ['frame', 'mapbtn', 'compass', 'scalebar'].forEach(id => {
+    const e = document.getElementById(id); if (e) e.style.display = 'none';
+  });
+  controls.autoRotate = false;
+  controls.maxDistance = 6000;
+  // north up with the faintest tilt: fov 40 at 3150 m covers ~2290 m of ground,
+  // which is the whole sheet
+  camera.position.set(CX, hTown + 3150, CZ + 330);
+  controls.target.set(CX, hTown, CZ);
+  controls.update();
+  ashMat.uniforms.uInk.value = 0;
+  birdMat.uniforms.uInk.value = 0;
+  compMat.uniforms.uFogDepth.value = 0;        // the loading sheet lays its own haze
+  compMat.uniforms.uCloudInk.value = 0;
+}
+
 function updateFrame() {
   const F = window.__frame; if (!F) return;
   const dx = camera.position.x - controls.target.x, dz = camera.position.z - controls.target.z;

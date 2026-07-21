@@ -12,8 +12,8 @@
      The blur is the wet edge. */
   #ink {
     position: fixed; left: 50%; top: 46%; transform: translate(-50%, -50%);
-    width: min(88vw, 960px); filter: blur(0.5px);
-    pointer-events: none;
+    width: min(88vw, 960px); filter: blur(0.4px);
+    pointer-events: none; z-index: 8;   /* above the fog AND the frame: nothing sits on the words */
   }
   #frame { position: fixed; inset: 0; pointer-events: none; z-index: 6; }
   #frame .pm { position: absolute; border: 1px solid rgba(77,70,57,0.5); }
@@ -49,6 +49,8 @@
 
 const PAPER = '#f8f6ef';
 const INK = [68, 61, 50];          // the pencil, a step darker for small marks
+const TINK = [48, 42, 33];         // the sentences: the darkest ink on the sheet,
+                                   // so they sit above plate, fog and everything else
 const RED = '#a5301f';
 const SPAN = 2200;                 // metres across the shorter side. Wide enough to bring
                                    // the oak masses south and east of the village onto the
@@ -94,7 +96,8 @@ const CX = town.x, CY = town.y;
 /* ---------- the plate: drawn once ---------- */
 const plate = document.getElementById('plate');
 const fogC = document.getElementById('fog');
-const DPR = Math.min(1.5, window.devicePixelRatio || 1);   // gentle on the machine
+const DPR = Math.min(2, window.devicePixelRatio || 1);   // the plate draws ONCE, so
+                                   // full retina costs nothing per-frame and the capture stays sharp
 let PW = 0, PH = 0, PXM = 0;
 const toothTile = document.createElement('canvas');
 toothTile.width = toothTile.height = 256;
@@ -399,7 +402,7 @@ function drawFog(now) {
 
 /* ---------- the ink: two sentences, bloomed in and erased out ---------- */
 const inkC = document.getElementById('ink');
-const IW = 680, IH = 250;
+const IW = 1020, IH = 375;
 inkC.width = IW; inkC.height = IH;
 const ictx = inkC.getContext('2d');
 
@@ -410,8 +413,8 @@ function buildRound(text, seed) {
   c.width = IW; c.height = IH;
   const x = c.getContext('2d');
   x.fillStyle = '#000';
-  x.font = '400 24px Georgia, serif';
-  if ('letterSpacing' in x) x.letterSpacing = '1.5px';
+  x.font = '400 36px Georgia, serif';
+  if ('letterSpacing' in x) x.letterSpacing = '2.2px';
   x.textAlign = 'center';
   // wrap
   const words = text.split(' ');
@@ -419,19 +422,19 @@ function buildRound(text, seed) {
   let line = '';
   words.forEach(w => {
     const trial = line ? line + ' ' + w : w;
-    if (x.measureText(trial).width > IW - 70 && line) { lines.push(line); line = w; }
+    if (x.measureText(trial).width > IW - 105 && line) { lines.push(line); line = w; }
     else line = trial;
   });
   lines.push(line);
-  const lh = 40, y0 = IH / 2 - (lines.length - 1) * lh / 2 + 8;
+  const lh = 60, y0 = IH / 2 - (lines.length - 1) * lh / 2 + 12;
   lines.forEach((l, i) => x.fillText(l, IW / 2, y0 + i * lh));
   const glyph = x.getImageData(0, 0, IW, IH);
 
   const mk = off => {
     const f = new Float32Array(IW * IH);
     for (let j = 0; j < IH; j++) for (let i = 0; i < IW; i++) {
-      f[j * IW + i] = vnoise(i / 88 + seed + off, j / 88 + seed + off) * 0.62
-                    + vnoise(i / 21 + seed * 3 + off, j / 21 + seed * 3 + off) * 0.38;
+      f[j * IW + i] = vnoise(i / 132 + seed + off, j / 132 + seed + off) * 0.62
+                    + vnoise(i / 31 + seed * 3 + off, j / 31 + seed * 3 + off) * 0.38;
     }
     // normalise so the sweep always covers 0..1
     let mn = 1e9, mx = -1e9;
@@ -454,7 +457,7 @@ function paintInk(rd, reveal, field) {
     let m = (reveal - field[i]) / F;
     m = m < 0 ? 0 : m > 1 ? 1 : m;
     m = m * m * (3 - 2 * m);
-    o[i * 4] = INK[0]; o[i * 4 + 1] = INK[1]; o[i * 4 + 2] = INK[2];
+    o[i * 4] = TINK[0]; o[i * 4 + 1] = TINK[1]; o[i * 4 + 2] = TINK[2];
     o[i * 4 + 3] = a * m;
   }
   ictx.putImageData(frame, 0, 0);
