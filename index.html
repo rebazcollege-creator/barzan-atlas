@@ -186,11 +186,9 @@
   .sil-k.on .sil-name{color:#a5301f}
   .sil-dates{font-size:11px;letter-spacing:.18em;color:#8a8172;text-transform:uppercase;margin-top:5px}
   .sil-bio{max-height:0;opacity:0;overflow:hidden;transition:max-height .95s ease,opacity .7s}
-  .sil-k.on .sil-bio{max-height:600px;opacity:1}
+  .sil-k.on .sil-bio{max-height:940px;opacity:1}
   .sil-bio p{font-size:15px;line-height:1.75;text-align:left;margin:15px 0 0}
-  .sil-port{width:118px;height:148px;margin:18px 0 0;
-    box-shadow:0 0 0 1px rgba(77,70,57,.3);
-    background:repeating-linear-gradient(45deg,rgba(77,70,57,.11) 0 1px,transparent 1px 7px)}
+  .sil-port{display:block;width:172px;height:auto;margin:14px 0 2px}
   .sil-portcap{font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:#8a8172;margin-top:8px}
 </style>
 </head>
@@ -4702,15 +4700,15 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
     // takya/centre normalised. Names and dates are displayed as he sent them; their
     // register is an open editorial flag (design/editorial-flags.md, section A).
     const SIL = [
-      ['Sheikh Taj al-Din', 'Late 18th century',
+      ['Sheikh Taj al-Din', 'Late 18th century', 'sheikh-01-taj-al-din.png',
        'Sheikh Taj al-Din established the first takya in Barzan, transforming a small mountain village into an organized spiritual centre. His leadership laid the religious foundations of the Barzani tradition, creating the enduring institution from which the Barzan sheikhdom and later movement would emerge.'],
-      ['Sheikh Abdullah', 'Early 19th century',
+      ['Sheikh Abdullah', 'Early 19th century', 'sheikh-02-abdullah.png',
        'Sheikh Abdullah became the first Barzani leader to adopt the Naqshbandi Sufi order, transforming Barzan into an organized Naqshbandi sheikhdom. His leadership established the spiritual foundations that shaped the Barzani movement and ensured the continuity of its distinctive religious tradition for future generations.'],
-      ['Sheikh Mohammed', 'Mid 19th century \u2013 1903',
+      ['Sheikh Mohammed', 'Mid 19th century \u2013 1903', 'sheikh-03-mohammed.png',
        'Sheikh Mohammed transformed Barzan from a secluded Sufi lodge into a dynamic religious and social movement. By expanding its influence beyond Barzan village among marginalized rural communities, he strengthened its communal identity and prepared the foundations upon which his successors would build an increasingly influential Kurdish movement.'],
-      ['Sheikh Abdul Salam II', '1887\u20131914',
+      ['Sheikh Abdul Salam II', '1887\u20131914', 'sheikh-04-abdul-salam-ii.png',
        'Sheikh Abdul Salam II united surrounding tribes under Barzan\u2019s leadership and linked its spiritual authority with emerging Kurdish political aspirations. Advocating local reform, Kurdish-language education, and justice, he became an early Kurdish political figure before his execution by Ottoman authorities in 1914.'],
-      ['Sheikh Ahmed', '1896\u20131969',
+      ['Sheikh Ahmed', '1896\u20131969', 'sheikh-05-ahmed.png',
        'Sheikh Ahmed became the final spiritual leader of the Barzan sheikhdom, preserving its religious traditions through rebellion, exile, and war. His leadership safeguarded the community\u2019s cohesion during decades of upheaval while overseeing the gradual transition from spiritual authority to modern Kurdish political leadership.'],
     ];
     const silWrap = document.createElement('div');
@@ -4719,13 +4717,14 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
       <div class="sil-kick">The House of Barzani</div>
       <div class="sil-title">THE SHEIKHS</div>
       <div class="sil-note">the silsila, the takya&#8217;s chain of masters</div>
-      <div class="sil-chain">` + SIL.map(([nm, dt, tx], i) =>
+      <div class="sil-chain">` + SIL.map(([nm, dt, pf, tx], i) =>
         `<div class="sil-k" data-i="${i}">
           <button class="sil-name">${nm}</button>
           <div class="sil-dates">${dt}</div>
           <div class="sil-bio">
-            <div class="sil-port"></div>
-            <div class="sil-portcap">portrait to come &#183; as imagined</div>
+            <img class="sil-port" src="assets/${pf}" loading="lazy"
+              alt="${nm}, an imagined engraved portrait in the plate's hand">
+            <div class="sil-portcap">as imagined</div>
             <p>${tx}</p>
           </div>
         </div>`).join('') + `</div></div>`;
