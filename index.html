@@ -141,6 +141,57 @@
   #vpara:not(.min) #vcont::after{right:0}
   #chamber.on #chcont::after{right:0;transition-delay:1s}
   #goback.vis::after{right:0}
+  /* ---------- the silsila: the takya's chain of masters, a scroll on the margin ---------- */
+  #sil{position:fixed;top:50%;right:0;z-index:14;display:flex;align-items:center;
+    transform:translateY(-50%) translateX(463px);opacity:0;pointer-events:none;
+    transition:transform 1.05s cubic-bezier(.77,0,.18,1),opacity .9s;
+    font-family:'IM Fell English',Georgia,serif;color:#30291f}
+  #sil.vis{opacity:1;pointer-events:auto}
+  #sil.open{transform:translateY(-50%) translateX(0)}
+  #silTab{writing-mode:vertical-rl;background:#f8f6ef;border:none;cursor:pointer;
+    box-shadow:0 0 0 1px rgba(77,70,57,.35),0 2px 18px rgba(77,70,57,.12);
+    font-family:'IM Fell English',Georgia,serif;font-size:11.5px;letter-spacing:.34em;
+    color:#4d4639;text-transform:uppercase;padding:24px 11px}
+  #silTab:hover{color:#a5301f}
+  #silSheet{width:462px;height:86vh;background:#f8f6ef;overflow-y:auto;
+    box-shadow:0 0 0 1px rgba(77,70,57,.35),0 2px 24px rgba(77,70,57,.14);
+    padding:46px 44px 40px;box-sizing:border-box}
+  #silSheet::-webkit-scrollbar{width:5px}
+  #silSheet::-webkit-scrollbar-thumb{background:rgba(77,70,57,.25)}
+  .sil-kick{font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:#4d4639;text-align:center}
+  .sil-title{font-size:26px;letter-spacing:.26em;text-transform:uppercase;font-weight:400;
+    color:#a5301f;text-align:center;margin:14px 0 10px}
+  .sil-note{font-style:italic;font-size:14px;color:#6b6454;text-align:center;margin:0;line-height:1.6}
+  .sil-chain{position:relative;margin:32px 0 0;padding-left:86px}
+  .sil-chain::before{content:'';position:absolute;left:43px;top:6px;bottom:14px;width:1px;
+    background:rgba(77,70,57,.42);transform:scaleY(0);transform-origin:top;
+    transition:transform 1.7s ease .5s}
+  #sil.open .sil-chain::before{transform:scaleY(1)}
+  .sil-k{position:relative;margin:0 0 34px;opacity:0;filter:blur(6px);
+    transition:opacity 1s ease,filter 1s ease}
+  #sil.open .sil-k{opacity:1;filter:none}
+  #sil.open .sil-k:nth-child(1){transition-delay:.7s}
+  #sil.open .sil-k:nth-child(2){transition-delay:.95s}
+  #sil.open .sil-k:nth-child(3){transition-delay:1.2s}
+  #sil.open .sil-k:nth-child(4){transition-delay:1.45s}
+  #sil.open .sil-k:nth-child(5){transition-delay:1.7s}
+  .sil-k::before{content:'';position:absolute;left:-48px;top:6px;width:9px;height:9px;
+    border:1px solid #4d4639;border-radius:50%;background:#f8f6ef;
+    transition:background .5s,border-color .5s}
+  .sil-k.on::before{background:#a5301f;border-color:#a5301f}
+  .sil-name{background:none;border:none;cursor:pointer;padding:0;text-align:left;display:block;
+    font-family:'IM Fell English',Georgia,serif;font-size:15.5px;letter-spacing:.2em;
+    text-transform:uppercase;color:#30291f}
+  .sil-name:hover{color:#a5301f}
+  .sil-k.on .sil-name{color:#a5301f}
+  .sil-dates{font-size:11px;letter-spacing:.18em;color:#8a8172;text-transform:uppercase;margin-top:5px}
+  .sil-bio{max-height:0;opacity:0;overflow:hidden;transition:max-height .95s ease,opacity .7s}
+  .sil-k.on .sil-bio{max-height:600px;opacity:1}
+  .sil-bio p{font-size:15px;line-height:1.75;text-align:left;margin:15px 0 0}
+  .sil-port{width:118px;height:148px;margin:18px 0 0;
+    box-shadow:0 0 0 1px rgba(77,70,57,.3);
+    background:repeating-linear-gradient(45deg,rgba(77,70,57,.11) 0 1px,transparent 1px 7px)}
+  .sil-portcap{font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:#8a8172;margin-top:8px}
 </style>
 </head>
 <body>
@@ -4385,7 +4436,12 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
     // ----- the machinery -----
     // state 0: paragraph on the map · 1: the takya page · 2: the free map after
     let state = 0, busy = false, flight2 = null, eraser = null;
-    function showBack() { gb.classList.toggle('vis', state > 0 && !busy); }
+    function showBack() {
+      gb.classList.toggle('vis', state > 0 && !busy);
+      const silOK = silShown && state !== 1 && !busy;
+      silWrap.classList.toggle('vis', silOK);
+      if (!silOK) silWrap.classList.remove('open');
+    }
 
     function fly2(toP, toT, T, onDone) {
       flight2 = {
@@ -4641,12 +4697,81 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
       else if (state === 2) toChamber();    // from the free map back to the takya page
     });
 
+    // ----- the silsila: the takya's chain of masters, on the map's right margin -----
+    // Renwar's five capsule bios (design/renwar-short-texts.md), his wording with
+    // takya/centre normalised. Names and dates are displayed as he sent them; their
+    // register is an open editorial flag (design/editorial-flags.md, section A).
+    const SIL = [
+      ['Sheikh Taj al-Din', 'Late 18th century',
+       'Sheikh Taj al-Din established the first takya in Barzan, transforming a small mountain village into an organized spiritual centre. His leadership laid the religious foundations of the Barzani tradition, creating the enduring institution from which the Barzan sheikhdom and later movement would emerge.'],
+      ['Sheikh Abdullah', 'Early 19th century',
+       'Sheikh Abdullah became the first Barzani leader to adopt the Naqshbandi Sufi order, transforming Barzan into an organized Naqshbandi sheikhdom. His leadership established the spiritual foundations that shaped the Barzani movement and ensured the continuity of its distinctive religious tradition for future generations.'],
+      ['Sheikh Mohammed', 'Mid 19th century \u2013 1903',
+       'Sheikh Mohammed transformed Barzan from a secluded Sufi lodge into a dynamic religious and social movement. By expanding its influence beyond Barzan village among marginalized rural communities, he strengthened its communal identity and prepared the foundations upon which his successors would build an increasingly influential Kurdish movement.'],
+      ['Sheikh Abdul Salam II', '1887\u20131914',
+       'Sheikh Abdul Salam II united surrounding tribes under Barzan\u2019s leadership and linked its spiritual authority with emerging Kurdish political aspirations. Advocating local reform, Kurdish-language education, and justice, he became an early Kurdish political figure before his execution by Ottoman authorities in 1914.'],
+      ['Sheikh Ahmed', '1896\u20131969',
+       'Sheikh Ahmed became the final spiritual leader of the Barzan sheikhdom, preserving its religious traditions through rebellion, exile, and war. His leadership safeguarded the community\u2019s cohesion during decades of upheaval while overseeing the gradual transition from spiritual authority to modern Kurdish political leadership.'],
+    ];
+    const silWrap = document.createElement('div');
+    silWrap.id = 'sil';
+    silWrap.innerHTML = `<button id="silTab">The Sheikhs</button><div id="silSheet">
+      <div class="sil-kick">The House of Barzani</div>
+      <div class="sil-title">THE SHEIKHS</div>
+      <div class="sil-note">the silsila, the takya&#8217;s chain of masters</div>
+      <div class="sil-chain">` + SIL.map(([nm, dt, tx], i) =>
+        `<div class="sil-k" data-i="${i}">
+          <button class="sil-name">${nm}</button>
+          <div class="sil-dates">${dt}</div>
+          <div class="sil-bio">
+            <div class="sil-port"></div>
+            <div class="sil-portcap">portrait to come &#183; as imagined</div>
+            <p>${tx}</p>
+          </div>
+        </div>`).join('') + `</div></div>`;
+    document.body.appendChild(silWrap);
+    silWrap.querySelector('#silSheet').style.backgroundImage = vp.style.backgroundImage;
+    let silShown = false, silTouched = false;
+    function silSet(open) {
+      silWrap.classList.toggle('open', open);
+      if (window.__sndTick) window.__sndTick();
+      if (open) {
+        window.__chamberBusy = true;        // the idle tour waits while the scroll is out
+        if (!silTouched) {                  // first unrolling: the chain opens on its founder
+          silTouched = true;
+          setTimeout(() => { if (silWrap.classList.contains('open')) silPick(0, false); }, 2100);
+        }
+      } else {
+        window.__chamberBusy = state !== 2;
+      }
+    }
+    function silPick(i, fold) {
+      const ks = silWrap.querySelectorAll('.sil-k');
+      ks.forEach((k, j) => k.classList.toggle('on', j === i && !fold));
+      if (!fold) {
+        if (window.__sndTick) window.__sndTick();
+        setTimeout(() => {
+          if (ks[i] && silWrap.classList.contains('open'))
+            ks[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }, 380);
+      }
+    }
+    silWrap.querySelectorAll('.sil-name').forEach((b, i) =>
+      b.addEventListener('click', () =>
+        silPick(i, b.closest('.sil-k').classList.contains('on'))));
+    silWrap.querySelector('#silTab').addEventListener('click', () =>
+      silSet(!silWrap.classList.contains('open')));
+    addEventListener('keydown', e => {
+      if (e.key === 'Escape' && silWrap.classList.contains('open')) silSet(false);
+    });
+
     // arrival: the paragraph rises once the map is alive
     const arm = setInterval(() => {
       if (!window.__aliveOn) return;
       clearInterval(arm);
       window.__chamberBusy = true;
       setTimeout(() => vp.classList.add('on'), 600);
+      setTimeout(() => { silShown = true; silWrap.classList.add('vis'); }, 1500);
     }, 250);
   }
 }
