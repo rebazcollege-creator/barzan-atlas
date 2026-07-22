@@ -218,19 +218,19 @@
   var K = document.getElementById('ldInk');
   var DPR = Math.min(2, window.devicePixelRatio || 1);
   var PAPER = '#f8f6ef', TINK = [48, 42, 33];
-  // One register only, at Rebaz's direction: every line in the style of LONG
-  // BEFORE - IM Fell English roman, letterspaced capitals, 27px - and no rules.
+  // One register only, at Rebaz's direction: IM Fell English roman, letterspaced
+  // capitals, 27px, no rules. The words are Renwar's House of Barzani capsule.
   var ROUNDS = [
-    [ { k: 'c', t: 'Long before the Barzanis became', s: 27 },
-      { k: 'c', t: 'an influential political household', s: 27 },
-      { k: 'c', t: 'in modern Iraqi Kurdistan,', s: 27 } ],
-    [ { k: 'c', t: 'they were sheikhs in', s: 27 },
-      { k: 'c', t: 'a remote mountain village.', s: 27 } ],
-    [ { k: 'c', t: 'Their authority began in', s: 27 },
-      { k: 'c', t: 'a small Sufi lodge,', s: 27 } ],
-    [ { k: 'c', t: 'among poor peasants,', s: 27 },
-      { k: 'c', t: 'rural communities, disciples,', s: 27 },
-      { k: 'c', t: 'and rival tribes.', s: 27 } ]
+    [ { k: 'c', t: 'For more than two centuries,', s: 27 },
+      { k: 'c', t: 'the House of Barzani has shaped', s: 27 },
+      { k: 'c', t: 'Kurdish religious, social,', s: 27 },
+      { k: 'c', t: 'and political history.', s: 27 } ],
+    [ { k: 'c', t: 'Beginning as a mountain Sufi lineage,', s: 27 } ],
+    [ { k: 'c', t: 'it evolved into one of the most', s: 27 },
+      { k: 'c', t: 'influential families in the', s: 27 },
+      { k: 'c', t: 'Kurdish national movement,', s: 27 } ],
+    [ { k: 'c', t: 'leaving a lasting legacy', s: 27 },
+      { k: 'c', t: 'across generations.', s: 27 } ]
   ];
   function h2(x, y) { var v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return v - Math.floor(v); }
   function vn(x, y) {
@@ -3890,13 +3890,13 @@ renderer.setAnimationLoop(() => {
   keepAboveGround();
   updateFrame();
   const tNow = clock.getElapsedTime();
-  /* ---------- the arrival: the low flight ----------
-     Begins the instant the loading sheet starts to erase. The bird comes out of a
-     single cloud bank and drops straight onto the valley: across the worked
-     parcels, low over the roofs and the hearth smoke of the village, past the
-     mosque quarter, then a climbing bank over the oak flank that lands exactly on
-     the resting stance, where the orbit takes over. Fast, low, and gone - the
-     village is shown at arm's length, not toured from the air.
+  /* ---------- the arrival: the drone line ----------
+     Begins the instant the loading sheet starts to erase. ONE smooth curve, the
+     gimbal locked on the village the whole way: out of a far cloud bank two
+     kilometres out, sweeping in and down, passing close beside the heart - roofs,
+     smoke and the mosque quarter sliding by beneath - then feathering up onto the
+     resting stance, where the orbit takes over the same motion. No stations, no
+     glances aside; the village is the subject from the first frame to the last.
      Controls stay dead until it has landed. */
   if (!__flight && window.__loaderWipeAt && !PLATE && !window.__skipIntro) {
     __flight = { t0: tNow };
@@ -3905,50 +3905,23 @@ renderer.setAnimationLoop(() => {
   }
   if (__flight && !__flight.done) {
     if (!__flight.path) {
-      // the route: named places of the plate, strung low. Heights are clearances
-      // above the real ground; the last point IS the resting stance.
-      const WFP = [
-        [CX + 760, CZ + 480, 300],   // the cloud door
-        [CX + 470, CZ + 330, 80],    // dropping onto the worked parcels
-        [CX + 200, CZ + 140, 54],    // the first roofs slide beneath
-        [CX - 70,  CZ - 75,  52],    // the heart, past the mosque quarter
-        [CX - 105, CZ + 215, 115],   // banking over the oak flank
-        [CX + 190, CZ + 455, 280],   // the climbing turn over the woods
-        [CX + 470, CZ + 640, 0],
-      ];
-      const pts = WFP.map((wp, i) => new THREE.Vector3(
-        wp[0],
-        i === WFP.length - 1 ? hTown + 430 : sampleH(wp[0], -wp[1]) + wp[2],
-        wp[1]));
-      __flight.path = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+      __flight.path = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(CX + 1500, hTown + 620, CZ - 1900),  // the cloud door, far out
+        new THREE.Vector3(CX + 700,  hTown + 400, CZ - 700),   // the long approach
+        new THREE.Vector3(CX + 140,  hTown + 195, CZ + 80),    // the close pass by the heart
+        new THREE.Vector3(CX + 470,  hTown + 430, CZ + 640),   // the resting stance
+      ], false, 'centripetal');
     }
-    // dive in, CRUISE the village at a steady pace, brake into the anchor:
-    // a smoothed trapezoid rather than a cosine, so the low pass does not rush
-    const FT = 10.0, u0 = Math.min(1, (tNow - __flight.t0) / FT);
-    const ea = 0.15, eb = 0.75, ek = 1 / (1 - ea / 2 - (1 - eb) / 2);
-    let u;
-    if (u0 < ea) u = ek * u0 * u0 / (2 * ea);
-    else if (u0 < eb) u = ek * (u0 - ea / 2);
-    else { const q2 = u0 - eb; u = ek * (eb - ea / 2 + q2 - q2 * q2 / (2 * (1 - eb))); }
-    u = Math.min(1, u);
+    const FT = 11.0, u0 = Math.min(1, (tNow - __flight.t0) / FT);
+    const u = 1 - (1 - u0) * (1 - u0);   // rush in from afar, feather the brakes
     const pos = __flight.path.getPoint(u);
-    // never into a knoll or a crown: the ground keeps its distance under the belly
-    const gfloor = sampleH(pos.x, -pos.z) + 40;
+    const gfloor = sampleH(pos.x, -pos.z) + 50;
     if (pos.y < gfloor) pos.y = gfloor;
     camera.position.copy(pos);
-    // the gaze runs ahead of the flight along the ground, and hands itself to the
-    // village centre as the bird climbs away
-    const ahead = __flight.path.getPoint(Math.min(1, u + 0.09));
-    ahead.y = sampleH(ahead.x, -ahead.z) + 12;
-    const hraw = Math.max(0, (u - 0.78) / 0.22);
-    const hm = hraw * hraw * (3 - 2 * hraw);
-    controls.target.set(
-      ahead.x + (CX - ahead.x) * hm,
-      ahead.y + (hTown + 10 - ahead.y) * hm,
-      ahead.z + (CZ - ahead.z) * hm);
+    controls.target.set(CX, hTown + 10, CZ);   // the gimbal never leaves the village
     camera.lookAt(controls.target);
-    // ONE cloud at the door, then the valley stays clear for the pass
-    const FK = [[0, .965], [.10, .9], [.20, P.fogDepth], [1, P.fogDepth]];
+    // one cloud bank at the door, then the valley stays clear
+    const FK = [[0, .965], [.10, .9], [.22, P.fogDepth], [1, P.fogDepth]];
     let fg = FK[FK.length - 1][1];
     for (let k2 = 0; k2 < FK.length - 1; k2++) {
       if (u >= FK[k2][0] && u <= FK[k2 + 1][0]) {
