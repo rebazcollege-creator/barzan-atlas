@@ -4552,6 +4552,14 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
         sec.id = 's-' + slug;
         let h = `<a class="ch-num" href="#s-${slug}" title="${title}">${num}</a>
                  <h2 class="ch-sec">${title}</h2>`;
+        if (slug === 'red-turban') {
+          // the jamadana itself, engraved: generated as an object plate (no people,
+          // per the project rail), lifted off its paper into transparent ink, the
+          // engraving's red nudged toward the site's own madder
+          h += `<div class="ch-sketch"><img src="assets/turban-sketch.png"
+            alt="A coiled jamadana turban, drawn as an engraved plate: wound bands of red-and-white herringbone cloth">
+            <div class="ch-skcap">the jamadana, as imagined</div></div>`;
+        }
         c2.blocks.forEach(b => {
           if (b.t === 'h') h += `<h3 class="ch-sub">${b.text}</h3>`;
           else if (b.t === 'caption') {
@@ -4608,6 +4616,7 @@ window.__barzan = { P, TREE_STROKE, camera, controls, renderer, compMat, groundM
           skObs.observe(c3);
         };
         bandFor();
+        rt.querySelectorAll('.ch-sketch').forEach(el => skObs.observe(el));
         let bandRs;
         addEventListener('resize', () => { clearTimeout(bandRs); bandRs = setTimeout(bandFor, 400); });
         // PROTOTYPE I: while the Red Turban section is before the reader, the site's
