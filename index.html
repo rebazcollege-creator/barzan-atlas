@@ -2057,6 +2057,24 @@ function yardArchetype(cattle) {
   return mergeGeometries(p);
 }
 
+// From the engraved reference (assets/engraving-tests/test-house.png): what makes a
+// Barzan wall read as BUILT is its stone - a boulder course at the foot, quoined
+// corners rising the wall's height, and rough stones standing on the roofline. All
+// three land as geometry in the rubble material, so the ink pipeline hatches them
+// exactly as it hatches the drawing that taught them.
+function stoneKit(parts, w, h, d, opts = {}) {
+  const px = w / 2, pz = d / 2;
+  parts.push(boxPart(w + 0.55, 0.55, d + 0.55, 0, 0.27, 0, 0.62, 0, 3));    // boulder course
+  if (!opts.noQuoin) for (const qx of [-1, 1]) for (const qz of [-1, 1])
+    parts.push(boxPart(0.42, h * 0.97, 0.42, qx * (px + 0.05), h * 0.49, qz * (pz + 0.05), 0.68, 0, 3));
+  if (opts.parapet) {
+    parts.push(boxPart(w + 0.2, 0.32, 0.36, 0, opts.parapet + 0.16, pz + 0.04, 0.55, 0, 3));
+    parts.push(boxPart(w + 0.2, 0.32, 0.36, 0, opts.parapet + 0.16, -pz - 0.04, 0.55, 0, 3));
+    parts.push(boxPart(0.36, 0.32, d + 0.2, px + 0.04, opts.parapet + 0.16, 0, 0.55, 0, 3));
+    parts.push(boxPart(0.36, 0.32, d + 0.2, -px - 0.04, opts.parapet + 0.16, 0, 0.55, 0, 3));
+  }
+}
+
 function houseArchetype(kind) {
   if (kind === 10) return yardArchetype(false);
   if (kind === 11) return yardArchetype(true);
@@ -2071,6 +2089,7 @@ function houseArchetype(kind) {
     ];
     for (let i = 0; i < 6; i++)                                             // the beam ends
       p.push(boxPart(0.22, 0.22, 0.7, -3.6 + i * 1.45, 3.05, 3.85, 0.44));
+    stoneKit(p, 9, 3.2, 7, { noQuoin: true });      // mud walls on a boulder course
     roofKit(p, 3.6, 61);
     return mergeGeometries(p);
   }
@@ -2086,6 +2105,7 @@ function houseArchetype(kind) {
     ];
     for (let i = 0; i < 3; i++)                                             // verandah posts
       p.push(boxPart(0.34, 4.2, 0.34, -1.7 + i * 1.7, 2.1, 2.9, 0.70));
+    stoneKit(p, 9.2, 4.4, 7, { noQuoin: true });     // the diwan stands on a stone platform
     roofKit(p, 5.1, 77);
     return mergeGeometries(p);
   }
@@ -2114,6 +2134,7 @@ function houseArchetype(kind) {
       p.push(boxPart(0.42, 1.5, 0.42, -3.6 + i * 2.4, 7.85, 2.4, 0.72));
     for (let i = 0; i < 9; i++)                                             // external stair
       p.push(boxPart(1.1, 0.22, 0.5, 5.1, 0.4 + i * 0.76, 3.0 - i * 0.42, 0.52));
+    stoneKit(p, 9, 6.6, 7, {});
     roofKit(p, 7.1, 143);
     return mergeGeometries(p);
   }
@@ -2130,6 +2151,7 @@ function houseArchetype(kind) {
     boxPart(0.08, 1.3, 1.1, 4.48, 3.9, 0.9, 0.22, 1),
     boxPart(0.85, 1.9, 0.85, CHIM[0], 8.2, CHIM[2], 0.50)
   ];
+  stoneKit(parts, 9, 6.6, 7, { parapet: 7.16 });
   if (kind === 1) {
     parts.push(boxPart(2.8, 2.2, 2.4, -2.4, 8.3, -1.5, 0.78, 0, 1));
     parts.push(boxPart(3.1, 0.3, 2.7, -2.4, 9.5, -1.5, 0.62));
