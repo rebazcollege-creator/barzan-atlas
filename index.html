@@ -2017,16 +2017,35 @@ function compoundWall() {
   ]);
 }
 
-// One animal, as boxes. Solid-flagged so it inks flat and dark whatever the light
-// is doing — at village zoom a sheep is a mark, and a mark has to be black.
+// One animal, as anatomy rather than as crates. The old beast was three boxes -
+// slab legs, a floating cube head - and up close it read as Minecraft, which Rebaz
+// rightly refused. The new plan is still boxes (it must instance and ink as marks),
+// but PROPORTIONED: a barrel with a deeper chest, a neck, a small lowered or raised
+// head with an ear-bar, four slender staggered legs, a tail; cattle carry a horn
+// bar. Solid-flagged throughout: at village zoom an animal is a dark mark.
+function beastPlan(bw, bh, bd, graze, cattle) {
+  const hy = graze ? bh * 0.29 : bh * 0.96;         // the head, down in the grass or up
+  const hz = graze ? bd * 0.64 : bd * 0.50;
+  const plan = [
+    [bw, bh * 0.40, bd * 0.88, 0, bh * 0.62, -bd * 0.02, 0.96],           // barrel
+    [bw * 0.94, bh * 0.30, bd * 0.34, 0, bh * 0.64, bd * 0.26, 0.95],     // chest
+    [bw * 0.34, bh * 0.38, bw * 0.34, 0, graze ? bh * 0.42 : bh * 0.80, graze ? bd * 0.50 : bd * 0.42, 0.97],  // neck
+    [bw * 0.32, bh * 0.20, bw * 0.56, 0, hy, hz, 0.99],                   // head
+    [bw * 0.46, bh * 0.05, bw * 0.16, 0, hy + bh * 0.10, hz - bw * 0.05, 0.94],  // ears
+    [bw * 0.07, bh * 0.24, bw * 0.07, 0, bh * 0.60, -bd * 0.46, 0.94],    // tail
+  ];
+  if (cattle) plan.push([bw * 0.34, bh * 0.08, bw * 0.10, 0, hy + bh * 0.16, hz, 0.92]);  // horns
+  [[0.30, 0.34, 0.05], [-0.30, 0.34, -0.04], [0.30, -0.32, -0.05], [-0.30, -0.32, 0.04]]
+    .forEach(([lx, lzf, st]) =>
+      plan.push([bw * 0.12, bh * 0.47, bw * 0.12, bw * lx, bh * 0.235, bd * lzf + bd * st, 0.94]));
+  return plan;
+}
 function beast(p, x, z, ang, bw, bh, bd) {
   const c = Math.cos(ang), sn = Math.sin(ang);
-  const put = (w, h, d, lx, ly, lz, tone) =>
-    p.push(boxPart(w, h, d, x + lx * c - lz * sn, ly, z + lx * sn + lz * c, tone, 1));
-  put(bw, bh * 0.46, bd, 0, bh * 0.70, 0, 0.97);
-  put(bw * 0.70, bh * 0.32, bw * 0.85, 0, bh * 0.88, bd * 0.50, 0.99);
-  for (const [sx2, sz2] of [[1, 1], [-1, 1], [1, -1], [-1, -1]])
-    put(bw * 0.20, bh * 0.48, bw * 0.20, sx2 * bw * 0.30, bh * 0.24, sz2 * bd * 0.32, 0.94);
+  const hv = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+  const graze = (hv - Math.floor(hv)) < 0.62;
+  beastPlan(bw, bh, bd, graze, bw > 0.9).forEach(([w, h, d, lx, ly, lz, tone]) =>
+    p.push(boxPart(w, h, d, x + lx * c - lz * sn, ly, z + lx * sn + lz * c, tone, 1)));
 }
 
 // A yard built on a real surveyed footprint: pen wall, shelter, and its flock already
@@ -3301,7 +3320,7 @@ function placePaddocks() {
     const n = g.cattle ? 9 + Math.floor(rng() * 8) : 22 + Math.floor(rng() * 20);
     for (let i = 0; i < n; i++) {
       const [ax, ay] = W2((rng() - 0.5) * (g.hw * 2 - 7), (rng() - 0.5) * (g.hd * 2 - 7));
-      stock.push([ax, ay, rng() * Math.PI * 2, g.cattle ? 1 : 0]);
+      stock.push([ax, ay, rng() * Math.PI * 2, g.cattle ? 1 : 0, rng() < 0.62 ? 1 : 0]);
     }
   });
   if (parts.length) {
@@ -3311,27 +3330,23 @@ function placePaddocks() {
   }
   const dummy = new THREE.Object3D();
   [[0, 0.76, 1.18, 1.75], [1, 1.10, 1.95, 2.80]].forEach(([kind, bw, bh, bd]) => {
-    const list = stock.filter(a => a[3] === kind);
-    if (!list.length) return;
-    const g = mergeGeometries([
-      boxPart(bw, bh * 0.46, bd, 0, bh * 0.70, 0, 0.97, 1),
-      boxPart(bw * 0.70, bh * 0.32, bw * 0.85, 0, bh * 0.88, bd * 0.50, 0.99, 1),
-      boxPart(bw * 0.20, bh * 0.48, bw * 0.20,  bw * 0.30, bh * 0.24,  bd * 0.32, 0.94, 1),
-      boxPart(bw * 0.20, bh * 0.48, bw * 0.20, -bw * 0.30, bh * 0.24,  bd * 0.32, 0.94, 1),
-      boxPart(bw * 0.20, bh * 0.48, bw * 0.20,  bw * 0.30, bh * 0.24, -bd * 0.32, 0.94, 1),
-      boxPart(bw * 0.20, bh * 0.48, bw * 0.20, -bw * 0.30, bh * 0.24, -bd * 0.32, 0.94, 1)
-    ]);
-    const m = new THREE.InstancedMesh(g, dataMaterial(0, { flat: 1 }), list.length);
-    list.forEach((a, i) => {
-      dummy.position.set(a[0], sampleH(a[0], a[1]) - 0.15, -a[1]);
-      dummy.rotation.set(0, a[2], 0);
-      dummy.scale.set(1, 0.9 + rng() * 0.22, 1);
-      dummy.updateMatrix();
-      m.setMatrixAt(i, dummy.matrix);
+    [1, 0].forEach(pose => {
+      const list = stock.filter(a => a[3] === kind && a[4] === pose);
+      if (!list.length) return;
+      const g = mergeGeometries(beastPlan(bw, bh, bd, pose === 1, kind === 1)
+        .map(([w, h, d, lx, ly, lz, tone]) => boxPart(w, h, d, lx, ly, lz, tone, 1)));
+      const m = new THREE.InstancedMesh(g, dataMaterial(0, { flat: 1 }), list.length);
+      list.forEach((a, i) => {
+        dummy.position.set(a[0], sampleH(a[0], a[1]) - 0.15, -a[1]);
+        dummy.rotation.set(0, a[2], 0);
+        dummy.scale.set(1, 0.9 + rng() * 0.22, 1);
+        dummy.updateMatrix();
+        m.setMatrixAt(i, dummy.matrix);
+      });
+      m.frustumCulled = false;
+      m.userData.pig = housePig;
+      scene.add(m);
     });
-    m.frustumCulled = false;
-    m.userData.pig = housePig;
-    scene.add(m);
   });
   return [fields.length, stock.length];
 }
