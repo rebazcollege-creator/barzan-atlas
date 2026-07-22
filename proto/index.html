@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Red Turban — prototypes</title>
+<style>
+  @font-face{font-family:'IM Fell English';src:url('../fonts/IMFellEnglish-Regular.woff2') format('woff2');font-style:normal}
+  @font-face{font-family:'IM Fell English';src:url('../fonts/IMFellEnglish-Italic.woff2') format('woff2');font-style:italic}
+  html,body{margin:0;background:#f8f6ef;color:#30291f;font-family:'IM Fell English',Georgia,serif}
+  #wrap{max-width:1240px;margin:0 auto;padding:7vh 4vw 12vh}
+  h1{font-size:15px;letter-spacing:.34em;text-transform:uppercase;font-weight:400;text-align:center;color:#4d4639}
+  .sub{font-size:13.5px;font-style:italic;text-align:center;color:#7a7263;margin:10px 0 7vh}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(480px,1fr));gap:44px}
+  .card{background:#f8f6ef;box-shadow:0 0 0 1px rgba(77,70,57,.32),0 2px 20px rgba(77,70,57,.10);padding:26px 28px 22px}
+  .num{font-size:12px;letter-spacing:.3em;color:#a5301f}
+  h2{font-size:16px;letter-spacing:.22em;text-transform:uppercase;font-weight:400;margin:6px 0 4px}
+  .why{font-size:14px;font-style:italic;color:#6b6454;margin:0 0 16px;line-height:1.6}
+  canvas{display:block;width:100%;background:#f8f6ef}
+  .note{font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:#8a8172;margin-top:12px}
+  .mock{position:relative;height:240px;border:1px solid rgba(77,70,57,.25);overflow:hidden}
+  .mock .bz{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);
+    font-size:34px;letter-spacing:.3em;color:var(--md,#a5301f)}
+  .mock .rl{position:absolute;left:22px;top:50%;transform:translateY(-50%);display:flex;
+    flex-direction:column;gap:12px;font-size:12px;letter-spacing:.15em;color:var(--md,#a5301f)}
+  .mock .ln{position:absolute;left:50%;top:62%;width:1px;height:30%;background:var(--md,#a5301f);opacity:.75}
+  .mock .hint{position:absolute;right:14px;bottom:10px;font-size:11px;letter-spacing:.2em;
+    color:#8a8172;text-transform:uppercase}
+  .ct{position:relative;text-align:center;margin-top:14px}
+  .ct button{background:none;border:none;font-family:inherit;font-size:12.5px;letter-spacing:.34em;
+    color:#4d4639;text-transform:uppercase;cursor:default;padding:6px 2px}
+  .ct svg{position:absolute;left:50%;transform:translateX(-50%);bottom:-2px}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>The Red Turban — Eight Prototypes</h1>
+  <div class="sub">drawn from the jamana's own grammar: crossed rules, zigzag borders, chevron bands, hooked courses · all procedural, nothing generated</div>
+  <div class="grid">
+
+    <div class="card"><div class="num">I</div><h2>The chapter learns its red</h2>
+      <div class="why">Entering chapter V, every madder element on the site warms and deepens, then returns to discipline when the chapter ends.</div>
+      <div class="mock" id="m1"><div class="bz">B A R Z A N</div>
+        <div class="rl"><span>I</span><span>II</span><span>III</span></div>
+        <div class="ln"></div><div class="hint">breathing automatically</div></div>
+      <div class="note">production: one uniform + one CSS variable · an afternoon</div></div>
+
+    <div class="card"><div class="num">II</div><h2>The woven line</h2>
+      <div class="why">For the turban chapter only, the page's standing hairline becomes a jamana band, weaving itself as the reader scrolls.</div>
+      <canvas id="c2" width="960" height="360"></canvas>
+      <div class="note">production: replaces .ch-body::before in chapter V · procedural</div></div>
+
+    <div class="card"><div class="num">III</div><h2>The coiled turban, drawn</h2>
+      <div class="why">A frameless engraved coil that inks in mid-section, like the takya. This procedural sketch is the STAND-IN; the finished still comes from Higgsfield, object only, then ink-lifted.</div>
+      <canvas id="c3" width="960" height="420"></canvas>
+      <div class="note">production: higgsfield still on white → transparent ink · needs your credits</div></div>
+
+    <div class="card"><div class="num">IV</div><h2>The plate that keeps its colour</h2>
+      <div class="why">Every image on the site is duotone. In chapter V, one plate is allowed its red — and only its red. Shown here on drawn cloth; in production, on your photograph of the folded turban.</div>
+      <canvas id="c4" width="960" height="380"></canvas>
+      <div class="note">production: one PIL pass on your photo · minutes once you supply it</div></div>
+
+    <div class="card"><div class="num">V</div><h2>The woven wipe</h2>
+      <div class="why">Chapter transitions erase along the weave: the ink leaves in herringbone courses, like cloth wound across the sheet. Shown on the takya drawing.</div>
+      <canvas id="c5" width="960" height="430"></canvas>
+      <div class="note">production: swap the erase mask's noise for this field · one shader change</div></div>
+
+    <div class="card"><div class="num">VI</div><h2>The red thread</h2>
+      <div class="why">At chapter moments, the line from the minaret and the CONTINUE underline draw themselves in madder — one thread tying chamber to chamber.</div>
+      <canvas id="c6" width="960" height="300"></canvas>
+      <div class="ct"><button>Continue</button>
+        <svg width="150" height="8" viewBox="0 0 150 8"><path id="thr" d="M2 5 L148 5" fill="none" stroke="#a5301f" stroke-width="1.3"/></svg></div>
+      <div class="note">production: css + one drawn path · an hour</div></div>
+
+    <div class="card"><div class="num">VII</div><h2>The coil marks your place</h2>
+      <div class="why">The progress dot becomes the turban seen from above: a small wound coil travelling the rail.</div>
+      <canvas id="c7" width="960" height="330"></canvas>
+      <div class="note">production: replaces the rail dot · procedural</div></div>
+
+    <div class="card"><div class="num">VIII</div><h2>The fibers</h2>
+      <div class="why">Threads of the weave drift across the paper — the gesture for entering chapter V, and, unravelling among the ash, for the chapter of 1983. This procedural motion is the stand-in; Higgsfield cloth footage, multiply-blended, is the finished version.</div>
+      <canvas id="c8" width="960" height="360"></canvas>
+      <div class="note">production: higgsfield fiber sequence on white, multiply over paper · rationed to two moments</div></div>
+
+  </div>
+</div>
+<script>
+const MD = '#a5301f', INK = 'rgba(64,57,47,';
+const cv = id => { const c = document.getElementById(id); return [c, c.getContext('2d')]; };
+const T0 = performance.now();
+
+/* ---- the jamana grammar, drawn by hand ---- */
+function zig(x, x0, y0, w, amp, per, color, lw) {
+  x.strokeStyle = color; x.lineWidth = lw; x.beginPath();
+  const nn = Math.round(w / per);
+  for (let i = 0; i <= nn; i++) {
+    const px = x0 + i * per, py = y0 + (i % 2 ? -amp : amp);
+    i ? x.lineTo(px, py) : x.moveTo(px, py);
+  }
+  x.stroke();
+}
+function chevRow(x, x0, y0, w, size, color, lw) {
+  x.strokeStyle = color; x.lineWidth = lw;
+  for (let px = x0; px < x0 + w - size; px += size * 1.45) {
+    x.beginPath();
+    x.moveTo(px, y0 + size * 0.6);
+    x.lineTo(px + size * 0.62, y0 - size * 0.6);
+    x.lineTo(px + size * 1.24, y0 + size * 0.6);
+    x.stroke();
+  }
+}
+function hook(x, px, py, s, flip, color, lw) {
+  x.strokeStyle = color; x.lineWidth = lw; x.beginPath();
+  const f = flip ? -1 : 1;
+  x.moveTo(px - s * f, py + s);
+  x.lineTo(px, py + s * 0.2);
+  x.lineTo(px, py - s * 0.2);
+  x.lineTo(px + s * f, py - s);
+  x.moveTo(px, py - s * 0.2);
+  x.lineTo(px + s * 0.8 * f, py + s * 0.25);
+  x.stroke();
+}
+function hookField(x, x0, y0, w, h, cell, color, lw, jt) {
+  let row = 0;
+  for (let py = y0 + cell; py < y0 + h; py += cell, row++) {
+    for (let px = x0 + cell * 0.7 + (row % 2) * cell * 0.5; px < x0 + w - cell * 0.5; px += cell) {
+      const j = jt ? (Math.sin(px * 12.9898 + py * 78.233 + jt) * 0.8) : 0;
+      hook(x, px + j, py + j * 0.7, cell * 0.30, (row + Math.round(px / cell)) % 2, color, lw);
+    }
+  }
+}
+
+/* I — the bloom */
+const m1 = document.getElementById('m1');
+
+/* II — the woven line */
+const [e2, x2] = cv('c2');
+function drawBand(t) {
+  x2.clearRect(0, 0, 960, 360);
+  const H = 300, y0 = 30, bw = 46, cx = 200;
+  const reveal = y0 + H * Math.min(1, t);
+  x2.save();
+  x2.beginPath(); x2.rect(0, 0, 960, reveal); x2.clip();
+  x2.strokeStyle = MD; x2.lineWidth = 1.4;
+  [cx - bw / 2, cx - bw / 2 + 5, cx + bw / 2 - 5, cx + bw / 2].forEach(px => {
+    x2.beginPath(); x2.moveTo(px, y0); x2.lineTo(px, y0 + H); x2.stroke();
+  });
+  for (let py = y0 + 8; py < y0 + H; py += 9)
+    zig(x2, cx - bw / 2 + 9, py, bw - 18, 2.6, 6.5, MD, 1.1);
+  x2.restore();
+  // beside it, the plain line it replaces, for comparison
+  x2.strokeStyle = 'rgba(77,70,57,.35)'; x2.lineWidth = 1;
+  x2.beginPath(); x2.moveTo(700, y0); x2.lineTo(700, y0 + H); x2.stroke();
+  x2.fillStyle = 'rgba(122,114,99,1)'; x2.font = 'italic 15px "IM Fell English",Georgia';
+  x2.fillText('the chapter V line', 250, 190);
+  x2.fillText('every other chapter', 730, 190);
+}
+
+/* III — the coil, engraved (stand-in) */
+const [e3, x3] = cv('c3');
+function drawCoil(bt) {
+  x3.clearRect(0, 0, 960, 420);
+  const cx = 480, cy = 235, J = (a, b) => Math.sin(a * 12.9 + b * 78.2 + bt) * 1.4;
+  for (let band = 5; band >= 0; band--) {
+    const ry = 34 + band * 24, rx = 105 + band * 42;
+    x3.strokeStyle = INK + '0.85)'; x3.lineWidth = 2.0;
+    x3.beginPath();
+    for (let a = Math.PI * 0.06; a < Math.PI * 0.94; a += 0.05) {
+      const px = cx - Math.cos(a) * rx + J(a, band), py = cy - band * 13 - Math.sin(a) * ry * 0.5 + J(band, a);
+      a < 0.1 + Math.PI * 0.06 ? x3.moveTo(px, py) : x3.lineTo(px, py);
+    }
+    x3.stroke();
+    // the winding's under-edge
+    x3.lineWidth = 1.1; x3.beginPath();
+    for (let a = Math.PI * 0.1; a < Math.PI * 0.9; a += 0.06) {
+      const px = cx - Math.cos(a) * rx * 0.97 + J(a + 9, band), py = cy - band * 13 - Math.sin(a) * ry * 0.5 + 12 + J(band, a + 9);
+      a < 0.16 + Math.PI * 0.1 ? x3.moveTo(px, py) : x3.lineTo(px, py);
+    }
+    x3.stroke();
+    // hooks riding each band, in the cloth's red
+    for (let a = Math.PI * 0.14; a < Math.PI * 0.86; a += 0.11) {
+      const px = cx - Math.cos(a) * rx * 0.985, py = cy - band * 13 - Math.sin(a) * ry * 0.5 + 5;
+      hook(x3, px + J(a, band + 5), py, 4.6, (band + Math.round(a * 6)) % 2, MD, 1.05);
+    }
+  }
+  x3.fillStyle = 'rgba(138,129,114,1)'; x3.font = '11px "IM Fell English",Georgia';
+  x3.textAlign = 'center';
+  x3.fillText('T H E   J A M A D A N A ,   A S   I M A G I N E D   ·   S T A N D - I N', 480, 402);
+  x3.textAlign = 'left';
+}
+
+/* IV — the plate that keeps its colour */
+const [e4, x4] = cv('c4');
+const cloth = document.createElement('canvas'); cloth.width = 960; cloth.height = 300;
+{
+  const g = cloth.getContext('2d');
+  g.fillStyle = '#f8f6ef'; g.fillRect(0, 0, 960, 300);
+  [14, 20, 278, 284].forEach(py => { g.strokeStyle = MD; g.lineWidth = 1.6;
+    g.beginPath(); g.moveTo(30, py); g.lineTo(930, py); g.stroke(); });
+  [34, 40, 920, 926].forEach(px => { g.strokeStyle = MD; g.lineWidth = 1.6;
+    g.beginPath(); g.moveTo(px, 4); g.lineTo(px, 296); g.stroke(); });   // crossed corners
+  chevRow(g, 50, 42, 860, 9, MD, 1.5);
+  chevRow(g, 50, 260, 860, 9, MD, 1.5);
+  hookField(g, 48, 52, 864, 200, 26, MD, 1.4, 0);
+}
+const clothInk = document.createElement('canvas'); clothInk.width = 960; clothInk.height = 300;
+{
+  const g = clothInk.getContext('2d');
+  g.drawImage(cloth, 0, 0);
+  g.globalCompositeOperation = 'saturation';
+  g.fillStyle = '#888'; g.fillRect(0, 0, 960, 300);
+  g.globalCompositeOperation = 'source-over';
+}
+function drawSel(t) {
+  const sweep = 100 + (Math.sin(t) * 0.5 + 0.5) * 760;
+  x4.clearRect(0, 0, 960, 380);
+  x4.drawImage(clothInk, 0, 40);
+  x4.save(); x4.beginPath(); x4.rect(0, 0, sweep, 380); x4.clip();
+  x4.drawImage(cloth, 0, 40); x4.restore();
+  x4.strokeStyle = 'rgba(77,70,57,.5)'; x4.lineWidth = 1;
+  x4.beginPath(); x4.moveTo(sweep, 30); x4.lineTo(sweep, 350); x4.stroke();
+  x4.fillStyle = 'rgba(138,129,114,1)'; x4.font = '11px "IM Fell English",Georgia';
+  x4.fillText('D U O T O N E', 800, 30); x4.fillText('T H E   R E D   K E P T', 60, 30);
+}
+
+/* V — the woven wipe */
+const [e5, x5] = cv('c5');
+const tk = new Image(); tk.src = '../assets/takya-sketch.png';
+const MW = 240, MH = 108;
+const wipeField = new Float32Array(MW * MH);
+{
+  for (let j = 0; j < MH; j++) for (let i = 0; i < MW; i++) {
+    const herr = Math.abs(((i * 0.55 + (((j / 9) | 0) % 2 ? j : -j) * 0.9) / 16) % 1 - 0.5) * 2;
+    const n = Math.sin(i * 12.9898 + j * 78.233) * 43758.5453;
+    wipeField[j * MW + i] = herr * 0.82 + (n - Math.floor(n)) * 0.18;
+  }
+}
+const wm = document.createElement('canvas'); wm.width = MW; wm.height = MH;
+const wmx = wm.getContext('2d'), wImg = wmx.createImageData(MW, MH);
+function drawWipe(t) {
+  const cyc = (t * 0.25) % 2, rev = cyc < 1 ? Math.min(1, cyc * 1.5) : Math.max(0, 1 - (cyc - 1) * 1.5);
+  x5.clearRect(0, 0, 960, 430);
+  if (!tk.complete) return;
+  for (let i = 0; i < MW * MH; i++) {
+    let m = (rev * 1.3 - wipeField[i]) / 0.24;
+    m = m < 0 ? 0 : m > 1 ? 1 : m;
+    wImg.data[i * 4 + 3] = m * 255;
+  }
+  wmx.putImageData(wImg, 0, 0);
+  const w = 700, h = w * tk.height / tk.width;
+  x5.drawImage(tk, 130, 215 - h / 2, w, h);
+  x5.globalCompositeOperation = 'destination-in';
+  x5.imageSmoothingEnabled = true;
+  x5.drawImage(wm, 130, 215 - h / 2, w, h);
+  x5.globalCompositeOperation = 'source-over';
+}
+
+/* VI — the red thread */
+const [e6, x6] = cv('c6');
+const thr = document.getElementById('thr');
+const thrLen = thr.getTotalLength();
+thr.style.strokeDasharray = thrLen;
+function drawThread(t) {
+  const p = (Math.sin(t * 0.9) * 0.5 + 0.5);
+  x6.clearRect(0, 0, 960, 300);
+  // the minaret line, in madder, weaving faintly as it rises
+  const H = 230 * p;
+  x6.strokeStyle = MD; x6.lineWidth = 1.3; x6.beginPath();
+  for (let py = 0; py <= H; py += 4) {
+    const px = 480 + Math.sin(py * 0.5) * 1.1;
+    py ? x6.lineTo(px, 270 - py) : x6.moveTo(px, 270 - py);
+  }
+  x6.stroke();
+  zig(x6, 480 - 14, 270 - H - 6, 28, 2.2, 5.5, MD, 1);
+  thr.style.strokeDashoffset = thrLen * (1 - p);
+}
+
+/* VII — the coil marks your place */
+const [e7, x7] = cv('c7');
+function coilAt(px, py, s, rot) {
+  x7.strokeStyle = MD; x7.lineWidth = 1.5; x7.beginPath();
+  for (let a = 0; a < Math.PI * 5.2; a += 0.12) {
+    const r = s * 0.16 + a * s * 0.052;
+    const X = px + Math.cos(a + rot) * r, Y = py + Math.sin(a + rot) * r * 0.86;
+    a ? x7.lineTo(X, Y) : x7.moveTo(X, Y);
+  }
+  x7.stroke();
+}
+function drawRail(t) {
+  x7.clearRect(0, 0, 960, 330);
+  const sx = 480, y0 = 40, gap = 52;
+  x7.strokeStyle = 'rgba(77,70,57,.32)'; x7.lineWidth = 1;
+  x7.beginPath(); x7.moveTo(sx, y0); x7.lineTo(sx, y0 + gap * 4 + 20); x7.stroke();
+  x7.fillStyle = 'rgba(77,70,57,.6)'; x7.font = '13px "IM Fell English",Georgia';
+  ['I', 'II', 'III', 'IV', 'V'].forEach((nm, i) => x7.fillText(nm, sx + 18, y0 + 8 + i * gap));
+  const pos = (Math.sin(t * 0.5) * 0.5 + 0.5) * 4;
+  const i0 = Math.floor(pos), f = pos - i0, ee = f * f * (3 - 2 * f);
+  coilAt(sx, y0 + 4 + (i0 + ee) * gap, 12, t * 1.4);
+  coilAt(120, 165, 26, 0); coilAt(240, 165, 16, 0.8); coilAt(330, 165, 9, 1.9);
+  x7.fillStyle = 'rgba(138,129,114,1)'; x7.font = '11px "IM Fell English",Georgia';
+  x7.fillText('T H E   C O I L ,   T H R E E   W E I G H T S', 100, 230);
+}
+
+/* VIII — the fibers */
+const [e8, x8] = cv('c8');
+const FIB = Array.from({ length: 11 }, (_, i) => ({
+  y: 40 + i * 28 + (i % 3) * 9, sp: 22 + (i * 7919 % 23), ph: i * 1.7,
+  amp: 14 + (i * 104729 % 17), red: i % 3 !== 2,
+}));
+function drawFibers(t) {
+  x8.clearRect(0, 0, 960, 360);
+  x8.globalCompositeOperation = 'multiply';
+  FIB.forEach(f => {
+    const off = (t * f.sp + f.ph * 130) % 1160 - 100;
+    x8.strokeStyle = f.red ? 'rgba(165,48,31,.75)' : 'rgba(64,57,47,.30)';
+    x8.lineWidth = f.red ? 1.7 : 1.1;
+    x8.setLineDash(f.red ? [9, 5] : [4, 7]);
+    x8.beginPath();
+    for (let px = -40; px < 1000; px += 12) {
+      const py = f.y + Math.sin((px + off) * 0.011 + f.ph) * f.amp
+                     + Math.sin((px + off) * 0.037 + f.ph * 2) * 4;
+      px > -40 ? x8.lineTo(px, py) : x8.moveTo(px, py);
+    }
+    x8.stroke();
+  });
+  x8.setLineDash([]);
+  x8.globalCompositeOperation = 'source-over';
+}
+
+/* the clock */
+let bt = 0;
+function tick(now) {
+  const t = (now - T0) / 1000;
+  const warm = Math.sin(t * 0.8) * 0.5 + 0.5;
+  m1.style.setProperty('--md', `rgb(${165 + warm * 35},${48 - warm * 14},${31 - warm * 8})`);
+  m1.querySelector('.bz').style.textShadow = `0 0 ${warm * 14}px rgba(165,48,31,${warm * 0.5})`;
+  drawBand((t * 0.22) % 1.4);
+  const nb = Math.floor(t * 2.5) * 0.73;
+  if (nb !== bt) { bt = nb; drawCoil(bt); }
+  drawSel(t * 0.7);
+  drawWipe(t);
+  drawThread(t);
+  drawRail(t);
+  drawFibers(t);
+  requestAnimationFrame(tick);
+}
+document.fonts.load('13px "IM Fell English"').then(() => requestAnimationFrame(tick));
+</script>
+</body>
+</html>
